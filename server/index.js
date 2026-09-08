@@ -8,8 +8,8 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { RAW_ITEMS } from "../src/data/rawItems.js";
-import { BASE_HEADS, TOTAL_BUDGET } from "../src/data/heads.js";
-import { fmtINR, nowStamp } from "../src/utils/format.js";
+import { BASE_HEADS } from "../src/data/heads.js";
+import { nowStamp } from "../src/utils/format.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5000;
@@ -17,11 +17,17 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/cpa-bu
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const TOKEN_TTL = "12h";
 
+/* Bump this whenever the stored app-state shape or cost-head taxonomy changes.
+   An older "main" document is archived (never deleted) and a fresh one is seeded. */
+const SCHEMA_VERSION = 2;
+
+const ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
+
 /* ---------- models ---------- */
 const userSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true, lowercase: true, trim: true },
   name: { type: String, required: true },
-  role: { type: String, required: true, enum: ["President", "Purchase Manager", "Department Head"] },
+  role: { type: String, required: true, enum: ROLES },
   title: { type: String, default: "" },
   passwordHash: { type: String, required: true },
 });
@@ -29,51 +35,84 @@ const User = mongoose.model("User", userSchema);
 
 const stateSchema = new mongoose.Schema({
   key: { type: String, required: true, unique: true },
+  schemaVersion: { type: Number, default: 1 },
   items: { type: mongoose.Schema.Types.Mixed, default: [] },
   prs: { type: mongoose.Schema.Types.Mixed, default: [] },
+  prCounter: { type: Number, default: 1 },
+  pos: { type: mongoose.Schema.Types.Mixed, default: [] },
+  poCounter: { type: Number, default: 1 },
+  grns: { type: mongoose.Schema.Types.Mixed, default: [] },
   audit: { type: mongoose.Schema.Types.Mixed, default: [] },
   headFreeze: { type: mongoose.Schema.Types.Mixed, default: {} },
   ceilOverrides: { type: mongoose.Schema.Types.Mixed, default: {} },
   tolerancePct: { type: Number, default: 5 },
+  secondApprovalPct: { type: Number, default: 15 },
 }, { minimize: false, timestamps: true });
 const AppState = mongoose.model("AppState", stateSchema);
 
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
-  { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President & Final Exception Approver" },
-  { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager" },
-  { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head" },
+  { userId: "amit", password: "VP@2026", name: "Amit", role: "VP", title: "Vice President — Budget Submission & First Approval" },
+  { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
+  { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation" },
+  { userId: "purchaseexec", password: "PurchaseExec@2026", name: "Purchase Executive", role: "Purchase Executive", title: "Purchase Executive — Purchase Orders" },
+  { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
+  { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
 ];
 
+function freshState() {
+  const items = RAW_ITEMS.map((it) => ({
+    ...it,
+    brand: it.brand || null,
+    committedQty: 0,
+    committedVal: 0,
+    approvalStatus: it.status === "Complete" ? "Approved" : "Pending",
+    freezeState: "Not Frozen",
+    deleted: false,
+  }));
+  const headFreeze = {};
+  BASE_HEADS.forEach((h) => (headFreeze[h.name] = "Not Frozen"));
+  return {
+    key: "main",
+    schemaVersion: SCHEMA_VERSION,
+    items,
+    prs: [],
+    prCounter: 1,
+    pos: [],
+    poCounter: 1,
+    grns: [],
+    audit: [{
+      ts: nowStamp(), who: "System",
+      text: `Budget data reset — all previous items cleared. Cost head structure updated to the new 16-head taxonomy (${BASE_HEADS.map((h) => h.name).join(", ")}). Awaiting VP's fresh budget submission.`,
+    }],
+    headFreeze,
+    ceilOverrides: {},
+    tolerancePct: 5,
+    secondApprovalPct: 15,
+  };
+}
+
 async function seed() {
-  if ((await User.countDocuments()) === 0) {
-    await User.insertMany(SEED_USERS.map((u) => ({
-      userId: u.userId, name: u.name, role: u.role, title: u.title,
-      passwordHash: bcrypt.hashSync(u.password, 10),
-    })));
-    console.log(`Seeded ${SEED_USERS.length} users.`);
+  // Users: add any seed account that does not exist yet. Existing accounts (and their passwords) are never touched.
+  let added = 0;
+  for (const u of SEED_USERS) {
+    if (await User.exists({ userId: u.userId })) continue;
+    await User.create({ userId: u.userId, name: u.name, role: u.role, title: u.title, passwordHash: bcrypt.hashSync(u.password, 10) });
+    added++;
+  }
+  if (added) console.log(`Seeded ${added} user account(s).`);
+
+  // App state: archive an out-of-date document, then seed a fresh one.
+  const existing = await AppState.findOne({ key: "main" });
+  if (existing && (existing.schemaVersion || 1) < SCHEMA_VERSION) {
+    const archiveKey = `main-archived-v${existing.schemaVersion || 1}-${Date.now()}`;
+    await AppState.updateOne({ _id: existing._id }, { $set: { key: archiveKey } });
+    console.log(`Archived previous app state as "${archiveKey}" (schema v${existing.schemaVersion || 1} → v${SCHEMA_VERSION}).`);
   }
   if (!(await AppState.findOne({ key: "main" }))) {
-    const items = RAW_ITEMS.map((it) => ({
-      ...it,
-      committedQty: 0,
-      committedVal: 0,
-      approvalStatus: it.status === "Complete" ? "Approved" : "Pending",
-      freezeState: "Not Frozen",
-      deleted: false,
-    }));
-    const headFreeze = {};
-    BASE_HEADS.forEach((h) => (headFreeze[h.name] = "Not Frozen"));
-    await AppState.create({
-      key: "main",
-      items,
-      prs: [],
-      audit: [{ ts: nowStamp(), who: "System", text: `Imported ${RAW_ITEMS.length} line items from CPA_PRE_OPENING_CAPEX_WORKSHEET across 17 source sheets. Total approved operating-goods budget: ${fmtINR(TOTAL_BUDGET)}.` }],
-      headFreeze,
-      ceilOverrides: {},
-      tolerancePct: 5,
-    });
-    console.log(`Seeded app state with ${items.length} budget items.`);
+    const state = freshState();
+    await AppState.create(state);
+    console.log(`Seeded app state (schema v${SCHEMA_VERSION}) with ${state.items.length} budget items across ${BASE_HEADS.length} cost heads.`);
   }
 }
 
@@ -112,14 +151,16 @@ app.post("/api/login", async (req, res) => {
   res.json({ token, user: publicUser(user) });
 });
 
+const SLICES = ["items", "prs", "prCounter", "pos", "poCounter", "grns", "audit", "headFreeze", "ceilOverrides", "tolerancePct", "secondApprovalPct"];
+
 app.get("/api/state", requireAuth, async (req, res) => {
   const state = await AppState.findOne({ key: "main" }).lean();
   if (!state) return res.status(500).json({ error: "App state not initialised." });
-  const { items, prs, audit, headFreeze, ceilOverrides, tolerancePct } = state;
-  res.json({ items, prs, audit, headFreeze, ceilOverrides, tolerancePct });
+  const out = {};
+  SLICES.forEach((k) => (out[k] = state[k]));
+  res.json(out);
 });
 
-const SLICES = ["items", "prs", "audit", "headFreeze", "ceilOverrides", "tolerancePct"];
 app.put("/api/state/:slice", requireAuth, async (req, res) => {
   const { slice } = req.params;
   if (!SLICES.includes(slice)) return res.status(400).json({ error: `Unknown state slice "${slice}".` });

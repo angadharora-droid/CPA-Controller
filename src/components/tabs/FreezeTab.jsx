@@ -3,8 +3,8 @@ import { C, STATUS_COLORS, APPROVAL_STATES, th, thR, pgBtn, cellInput, btnStyle 
 import { fmtINR, fmtNum } from "../../utils/format.js";
 import { Badge, ReconIndicator, MiniStat } from "../ui.jsx";
 
-/* ================= BUDGET FREEZE ================= */
-export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk }) {
+/* ================= BUDGET REVIEW & FREEZE ================= */
+export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [showDeleted, setShowDeleted] = useState(false);
@@ -14,7 +14,8 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
   const head = HEADS.find((h) => h.name === selectedHead);
   const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
-  const frozen = headFreeze[selectedHead] !== "Not Frozen";
+  const frozen = (headFreeze[selectedHead] || "Not Frozen") !== "Not Frozen";
+  const canFreeze = role === "President";
   const color = reconColor(selectedHead);
   const dupes = useMemo(() => {
     const counts = {};
@@ -58,8 +59,10 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
     setCategoryInput("");
   }
 
+  const dotColor = { green: "#1E8E5A", amber: "#B9760A", red: "#B3261E", grey: "#9AA1AC" };
+
   return (
-    <div style={{ display: "flex", gap: 16 }}>
+    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
       {/* sidebar */}
       <div style={{ width: 260, flexShrink: 0 }}>
         <div style={{ ...cardStyle, padding: 10 }}>
@@ -71,31 +74,39 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                 background: h.name === selectedHead ? "#0B1E36" : "transparent",
                 color: h.name === selectedHead ? "#fff" : C.text,
               }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{h.name}</span>
-                <span style={{ width: 7, height: 7, borderRadius: 99, background: { green: "#1E8E5A", amber: "#B9760A", red: "#B3261E", grey: "#9AA1AC" }[reconColor(h.name)] }} />
+                <span style={{ width: 7, height: 7, borderRadius: 99, flexShrink: 0, background: dotColor[reconColor(h.name)] }} />
               </div>
               <div style={{ fontSize: 11, color: h.name === selectedHead ? "#C7D0DE" : "#9AA1AC" }}>{fmtINR(h.ceil)} ceiling</div>
             </div>
           ))}
         </div>
         <div style={{ ...cardStyle, marginTop: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 8 }}>Admin Setting</div>
-          <label style={{ fontSize: 12.5 }}>Auto-approval rate tolerance</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 8 }}>Admin Settings</div>
+          <label style={{ fontSize: 12.5 }}>Good-to-Approve rate tolerance</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, marginBottom: 10 }}>
             <input type="number" value={tolerancePct} onChange={(e) => setTolerancePct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+            <span style={{ fontSize: 13 }}>%</span>
+          </div>
+          <label style={{ fontSize: 12.5 }}>President's 2nd-approval threshold</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+            <input type="number" value={secondApprovalPct} onChange={(e) => setSecondApprovalPct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
             <span style={{ fontSize: 13 }}>%</span>
           </div>
         </div>
       </div>
 
       {/* main */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 320 }}>
+        <div style={{ background: "#EAF0FB", border: `1px solid #C7D6EF`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#2E5FA3" }}>
+          {role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
+        </div>
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
             <div>
               <div style={{ fontSize: 17, fontWeight: 700 }}>{selectedHead}</div>
-              <div style={{ fontSize: 12.5, color: "#9AA1AC" }}>{head.dept} · {filteredItems.length} line items imported from source workbook</div>
+              <div style={{ fontSize: 12.5, color: "#9AA1AC" }}>{head.dept} · {filteredItems.length} line item(s) in this head</div>
             </div>
             <ReconIndicator color={color} label={color === "green" ? "Item total ≤ ceiling" : color === "amber" ? "Item list incomplete" : color === "red" ? "Item total exceeds ceiling" : "Not yet frozen"} />
           </div>
@@ -107,7 +118,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                 <div style={{ fontSize: 10.5, color: "#9AA1AC", textTransform: "uppercase", letterSpacing: 0.3 }}>Ceiling (editable)</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 13 }}>₹</span>
-                  <input key={selectedHead} type="number" defaultValue={head.ceil} onBlur={(e) => setHeadCeiling(selectedHead, e.target.value)}
+                  <input key={selectedHead} type="number" defaultValue={head.ceil} onBlur={(e) => Number(e.target.value) !== head.ceil && setHeadCeiling(selectedHead, e.target.value)}
                     style={{ width: 110, padding: "4px 6px", border: `1px solid ${C.line}`, borderRadius: 5, fontSize: 14, fontWeight: 700 }} />
                 </div>
               </div>
@@ -121,11 +132,17 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
 
           {!frozen ? (
             <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 12.5, color: "#6B7280", marginRight: 4 }}>Freeze this budget head as:</span>
-              <button onClick={() => freezeHead(selectedHead, "Fully Frozen")} style={btnStyle(C.green)}>Fully Frozen</button>
-              <button onClick={() => freezeHead(selectedHead, "Provisionally Frozen")} style={btnStyle(C.amber)}>Provisionally Frozen</button>
-              <button onClick={() => freezeHead(selectedHead, "Lump-Sum Frozen")} style={btnStyle(C.blue)}>Lump-Sum Frozen</button>
-              <button onClick={() => freezeHead(selectedHead, "Not Approved")} style={btnStyle(C.red)}>Not Approved</button>
+              {canFreeze ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: "#6B7280", marginRight: 4 }}>Freeze this budget head as:</span>
+                  <button onClick={() => freezeHead(selectedHead, "Fully Frozen")} style={btnStyle(C.green)}>Fully Frozen</button>
+                  <button onClick={() => freezeHead(selectedHead, "Provisionally Frozen")} style={btnStyle(C.amber)}>Provisionally Frozen</button>
+                  <button onClick={() => freezeHead(selectedHead, "Lump-Sum Frozen")} style={btnStyle(C.blue)}>Lump-Sum Frozen</button>
+                  <button onClick={() => freezeHead(selectedHead, "Not Approved")} style={btnStyle(C.red)}>Not Approved</button>
+                </>
+              ) : (
+                <span style={{ fontSize: 12.5, color: "#6B7280" }}>Freezing is reserved for the President — hand off once the item list is complete.</span>
+              )}
               {(headIncomplete[selectedHead] > 0 || headItemTotal[selectedHead] > head.ceil || dupes.length > 0) && (
                 <span style={{ fontSize: 11.5, color: C.amber, marginLeft: 6 }}>⚠ Missing data, ceiling breach, or duplicates detected — review before freezing "Fully Frozen".</span>
               )}
@@ -134,7 +151,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
             <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.line}`, fontSize: 13 }}>
               <Badge bg="#EAF0FB" fg="#2E5FA3">{headFreeze[selectedHead]}</Badge>
               <span style={{ color: "#9AA1AC", marginLeft: 10 }}>Original values are locked. Purchase users cannot edit. </span>
-              <button onClick={() => freezeHead(selectedHead, "Not Frozen")} style={{ ...btnStyle(C.grey), marginLeft: 8 }}>Unfreeze (creates revision)</button>
+              {canFreeze && <button onClick={() => freezeHead(selectedHead, "Not Frozen")} style={{ ...btnStyle(C.grey), marginLeft: 8 }}>Unfreeze (creates revision)</button>}
             </div>
           )}
         </div>
@@ -191,6 +208,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                   {!frozen && <th style={th}><input type="checkbox" checked={pageItems.length > 0 && pageItems.every((it) => selected.has(it.id))} onChange={toggleSelectAllPage} /></th>}
                   <th style={th}>Item</th>
                   <th style={th}>Spec / Sub-category</th>
+                  <th style={th}>Approved Brand</th>
                   <th style={thR}>Qty</th>
                   <th style={thR}>Rate</th>
                   <th style={thR}>Value</th>
@@ -201,10 +219,15 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
               </thead>
               <tbody>
                 {pageItems.map((it) => (
-                  <ItemRow key={it.id} it={it} updateItem={updateItem} setItemApproval={setItemApproval} frozen={frozen}
+                  <ItemRow key={it.id} it={it} updateItem={updateItem} setItemApproval={setItemApproval} updateItemBrand={updateItemBrand} frozen={frozen}
                     selected={selected.has(it.id)} onToggleSelect={() => toggleSelect(it.id)}
                     renameItemName={renameItemName} deleteItems={deleteItems} />
                 ))}
+                {pageItems.length === 0 && (
+                  <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#9AA1AC" }}>
+                    {role === "VP" ? "No items in this head yet — import the budget submission workbook above." : "No items in this head yet — awaiting the VP's budget submission."}
+                  </td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -218,7 +241,8 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
     </div>
   );
 }
-function ItemRow({ it, updateItem, setItemApproval, frozen, selected, onToggleSelect, renameItemName, deleteItems }) {
+
+function ItemRow({ it, updateItem, setItemApproval, updateItemBrand, frozen, selected, onToggleSelect, renameItemName, deleteItems }) {
   const sc = STATUS_COLORS[it.status] || STATUS_COLORS.Complete;
   return (
     <tr style={{ borderTop: "1px solid #F0EFEA", background: selected ? "#FFFBF0" : "transparent" }}>
@@ -238,18 +262,25 @@ function ItemRow({ it, updateItem, setItemApproval, frozen, selected, onToggleSe
           <input defaultValue={it.sub || ""} placeholder="category" onBlur={(e) => e.target.value !== it.sub && updateItem(it.id, { sub: e.target.value })}
             style={{ ...cellInput, width: "100%", textAlign: "left" }} />
         ))}
+        {it.spec && it.sub && <div style={{ fontSize: 10.5, color: "#9AA1AC" }}>{it.sub}</div>}
+      </td>
+      <td style={{ padding: "7px 10px", color: "#6B7280", maxWidth: 140 }}>
+        {frozen ? (it.brand || "—") : (
+          <input defaultValue={it.brand || ""} placeholder="brand" onBlur={(e) => e.target.value !== (it.brand || "") && updateItemBrand(it.id, e.target.value)}
+            style={{ ...cellInput, width: "100%", textAlign: "left" }} />
+        )}
       </td>
       <td style={{ padding: "3px 6px", textAlign: "right" }}>
-        {frozen ? fmtNum(it.qty) : <input disabled={frozen} defaultValue={it.qty ?? ""} onBlur={(e) => updateItem(it.id, { qty: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
+        {frozen ? fmtNum(it.qty) : <input defaultValue={it.qty ?? ""} onBlur={(e) => updateItem(it.id, { qty: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
       </td>
       <td style={{ padding: "3px 6px", textAlign: "right" }}>
-        {frozen ? fmtINR(it.rate) : <input disabled={frozen} defaultValue={it.rate ?? ""} onBlur={(e) => updateItem(it.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
+        {frozen ? fmtINR(it.rate) : <input defaultValue={it.rate ?? ""} onBlur={(e) => updateItem(it.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
       </td>
       <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600 }}>{fmtINR(it.val)}</td>
       <td style={{ padding: "7px 10px" }}><Badge bg={sc.bg} fg={sc.fg}>{sc.label}</Badge></td>
       <td style={{ padding: "7px 10px" }}>
         {frozen ? <Badge bg="#EAF0FB" fg="#2E5FA3">{it.approvalStatus}</Badge> : (
-          <select disabled={frozen} value={it.approvalStatus} onChange={(e) => setItemApproval(it.id, e.target.value)} style={{ fontSize: 11.5, padding: "3px 5px", borderRadius: 5, border: `1px solid ${C.line}` }}>
+          <select value={it.approvalStatus} onChange={(e) => setItemApproval(it.id, e.target.value)} style={{ fontSize: 11.5, padding: "3px 5px", borderRadius: 5, border: `1px solid ${C.line}` }}>
             {APPROVAL_STATES.map((s) => <option key={s}>{s}</option>)}
           </select>
         )}

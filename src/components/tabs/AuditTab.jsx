@@ -7,7 +7,7 @@ export default function AuditTab({ audit, cardStyle }) {
       {audit.map((a, i) => (
         <div key={i} style={{ display: "flex", gap: 12, padding: "9px 0", borderTop: i ? "1px solid #F0EFEA" : "none", fontSize: 12.5 }}>
           <div style={{ width: 150, flexShrink: 0, color: "#9AA1AC" }}>{a.ts}</div>
-          <div style={{ width: 130, flexShrink: 0, fontWeight: 700 }}>{a.who}</div>
+          <div style={{ width: 190, flexShrink: 0, fontWeight: 700 }}>{a.who}</div>
           <div>{a.text}</div>
         </div>
       ))}

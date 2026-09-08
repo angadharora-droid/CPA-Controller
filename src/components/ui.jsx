@@ -25,6 +25,7 @@ export function ReconIndicator({ color, label }) {
     </span>
   );
 }
+
 export function MiniStat({ label, value, accent }) {
   return (
     <div>
@@ -33,28 +34,27 @@ export function MiniStat({ label, value, accent }) {
     </div>
   );
 }
-export function ResultPanel({ result, cardStyle }) {
-  return (
-    <div style={{ ...cardStyle, position: "sticky", top: 16, alignSelf: "start" }}>
-      <div style={{ fontWeight: 700, marginBottom: 10 }}>Result</div>
-      {result.autoApproved ? (
-        <div style={{ background: "#E9F6EF", border: "1px solid #BFE6D2", borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 800, color: C.green, fontSize: 13 }}>✓ AUTO-APPROVED — WITHIN FROZEN PRE-OPENING BUDGET</div>
-          <div style={{ fontSize: 12, marginTop: 6, color: "#2A5F45" }}>{result.detail}</div>
-          <div style={{ fontSize: 12, marginTop: 6 }}>Routed directly to Purchase Manager. No President / GM / Finance approval required.</div>
-        </div>
-      ) : (
-        <div style={{ background: "#FCEAEA", border: "1px solid #F2C5C2", borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 800, color: C.red, fontSize: 13 }}>⤴ ESCALATED TO PRESIDENT</div>
-          <div style={{ fontSize: 12.5, marginTop: 6, fontWeight: 700 }}>{result.reasonCode}</div>
-          <div style={{ fontSize: 12, marginTop: 4, color: "#7A2A26" }}>{result.detail}</div>
-        </div>
-      )}
-      <div style={{ fontSize: 12, color: "#9AA1AC", marginTop: 10 }}>PR ID: {result.id}</div>
-    </div>
-  );
-}
 
 export function Field({ label, children }) {
   return <div style={{ marginBottom: 10 }}><label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 3 }}>{label}</label>{children}</div>;
+}
+
+export function PRResultPanel({ pr, cardStyle }) {
+  const good = pr.lines.filter((l) => l.lane === "good").length;
+  const exception = pr.lines.filter((l) => l.lane === "exception").length;
+  return (
+    <div style={{ ...cardStyle, position: "sticky", top: 16, alignSelf: "start" }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>{pr.id} submitted</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 10 }}>{pr.lines.length} line item(s) — {good} on VP's Good-to-Approve lane, {exception} on VP's Exception Desk.</div>
+      {pr.lines.map((l) => (
+        <div key={l.lineId} style={{ borderTop: "1px solid #F0EFEA", padding: "8px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}>
+            <span style={{ fontWeight: 600 }}>{l.itemName}</span>
+            <Badge bg={l.lane === "good" ? "#E9F6EF" : "#FCEAEA"} fg={l.lane === "good" ? C.green : C.red}>{l.lane === "good" ? "Good to Approve" : "Exception"}</Badge>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#9AA1AC", marginTop: 2 }}>{l.reasons.join("; ")}</div>
+        </div>
+      ))}
+    </div>
+  );
 }

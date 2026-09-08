@@ -22,3 +22,6 @@ export function nowStamp() {
 export function uid(prefix) {
   return prefix + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
+export function padNum(n, len) {
+  return String(n).padStart(len, "0");
+}
