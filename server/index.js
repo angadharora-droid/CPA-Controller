@@ -21,7 +21,7 @@ const TOKEN_TTL = "12h";
    An older "main" document is archived (never deleted) and a fresh one is seeded. */
 const SCHEMA_VERSION = 2;
 
-const ROLES = ["General Manager", "VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
+const ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
 
 /* ---------- models ---------- */
 const userSchema = new mongoose.Schema({
@@ -29,6 +29,8 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   role: { type: String, required: true, enum: ROLES },
   title: { type: String, default: "" },
+  /* Full administrative access (every tab, every action) on top of the user's workflow role. */
+  isAdmin: { type: Boolean, default: false },
   passwordHash: { type: String, required: true },
 });
 const User = mongoose.model("User", userSchema);
@@ -52,8 +54,7 @@ const AppState = mongoose.model("AppState", stateSchema);
 
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
-  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "General Manager", title: "General Manager — Full Administrative Access" },
-  { userId: "amit", password: "VP@2026", name: "Amit", role: "VP", title: "Vice President — Budget Submission & First Approval" },
+  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
   { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
   { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation" },
   { userId: "purchaseexec", password: "PurchaseExec@2026", name: "Purchase Executive", role: "Purchase Executive", title: "Purchase Executive — Purchase Orders" },
@@ -98,10 +99,11 @@ async function seed() {
   let added = 0;
   for (const u of SEED_USERS) {
     if (await User.exists({ userId: u.userId })) continue;
-    await User.create({ userId: u.userId, name: u.name, role: u.role, title: u.title, passwordHash: bcrypt.hashSync(u.password, 10) });
+    await User.create({ userId: u.userId, name: u.name, role: u.role, isAdmin: !!u.isAdmin, title: u.title, passwordHash: bcrypt.hashSync(u.password, 10) });
     added++;
   }
   if (added) console.log(`Seeded ${added} user account(s).`);
+  await migrateUsers();
 
   // App state: archive an out-of-date document, then seed a fresh one.
   const existing = await AppState.findOne({ key: "main" });
@@ -117,9 +119,24 @@ async function seed() {
   }
 }
 
+/* One-time account migrations. Safe to run on every start; each step is a no-op once applied. */
+async function migrateUsers() {
+  // The VP and the former "General Manager" are the same person: fold the admin account into a
+  // single VP login carrying the admin flag, so the audit trail records them as VP.
+  const gm = SEED_USERS.find((u) => u.userId === "amitkhandwal");
+  const folded = await User.updateOne(
+    { userId: "amitkhandwal", $or: [{ role: "General Manager" }, { isAdmin: { $ne: true } }] },
+    { $set: { role: "VP", isAdmin: true, title: gm.title } }
+  );
+  if (folded.modifiedCount) console.log('Migrated "amitkhandwal" to role VP with the admin flag.');
+  // Retire the separate VP-only login that the merged account replaces.
+  const retired = await User.deleteOne({ userId: "amit" });
+  if (retired.deletedCount) console.log('Removed the retired "amit" login (merged into "amitkhandwal").');
+}
+
 /* ---------- auth ---------- */
 function publicUser(u) {
-  return { id: u.userId, name: u.name, role: u.role, title: u.title };
+  return { id: u.userId, name: u.name, role: u.role, isAdmin: !!u.isAdmin, title: u.title };
 }
 
 function requireAuth(req, res, next) {
@@ -148,7 +165,7 @@ app.post("/api/login", async (req, res) => {
   if (!user || !bcrypt.compareSync(String(password), user.passwordHash)) {
     return res.status(401).json({ error: "Invalid user ID or password. Please try again." });
   }
-  const token = jwt.sign({ sub: user.userId, name: user.name, role: user.role }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  const token = jwt.sign({ sub: user.userId, name: user.name, role: user.role, isAdmin: !!user.isAdmin }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.json({ token, user: publicUser(user) });
 });
 

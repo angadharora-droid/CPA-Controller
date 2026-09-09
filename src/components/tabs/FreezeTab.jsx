@@ -4,7 +4,7 @@ import { fmtINR, fmtNum } from "../../utils/format.js";
 import { Badge, ReconIndicator, MiniStat } from "../ui.jsx";
 
 /* ================= BUDGET REVIEW & FREEZE ================= */
-export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role }) {
+export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [showDeleted, setShowDeleted] = useState(false);
@@ -15,7 +15,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
   const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const frozen = (headFreeze[selectedHead] || "Not Frozen") !== "Not Frozen";
-  const canFreeze = role === "President" || role === "General Manager";
+  const canFreeze = role === "President" || isAdmin;
   const color = reconColor(selectedHead);
   const dupes = useMemo(() => {
     const counts = {};
@@ -100,7 +100,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
       {/* main */}
       <div style={{ flex: 1, minWidth: 320 }}>
         <div style={{ background: "#EAF0FB", border: `1px solid #C7D6EF`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#2E5FA3" }}>
-          {role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
+          {isAdmin ? "You have full administrative access — edit items freely and freeze heads directly. Freezing a head locks it for departments to requisition against." : role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
         </div>
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
