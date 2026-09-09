@@ -14,7 +14,11 @@ export function loadSession() {
   try {
     if (!getToken()) return null;
     const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const user = raw ? JSON.parse(raw) : null;
+    // A session cached before the admin flag existed has no isAdmin field; force a fresh sign-in
+    // so the account picks up its current role and permissions.
+    if (!user || typeof user.isAdmin !== "boolean") { clearSession(); return null; }
+    return user;
   } catch {
     return null;
   }

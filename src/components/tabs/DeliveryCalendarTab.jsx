@@ -3,7 +3,7 @@ import { C, btnStyle } from "../../theme.js";
 import POView from "../POView.jsx";
 
 /* ================= DELIVERY CALENDAR ================= */
-export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role }) {
+export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role, isAdmin }) {
   const [viewPoId, setViewPoId] = useState(null);
   const viewPo = pos.find((p) => p.id === viewPoId) || null;
   const grouped = useMemo(() => {
@@ -36,7 +36,7 @@ export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role }) {
           </div>
         ))}
       </div>
-      {viewPo && <div style={{ marginTop: 16 }}><POView po={viewPo} signPO={signPO} role={role} /></div>}
+      {viewPo && <div style={{ marginTop: 16 }}><POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} /></div>}
     </div>
   );
 }

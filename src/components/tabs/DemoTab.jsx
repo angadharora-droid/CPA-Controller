@@ -5,7 +5,7 @@ import { Badge } from "../ui.jsx";
 const DEMO_HEADS = ["Crockery", "Cutlery", "Glassware", "Kitchen Utensils", "Kitchen Equipment", "Room Amenities (Non Consumable)"];
 
 /* ================= DEMO SCENARIOS ================= */
-export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, cardStyle }) {
+export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, cardStyle }) {
   const [log, setLog] = useState([]);
   function findItem(name) { return items.find((i) => i.name === name && !i.deleted); }
   function push(label, result) { setLog((l) => [{ label, result }, ...l]); }
@@ -73,7 +73,7 @@ export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBu
       <div style={{ ...cardStyle, marginBottom: 14 }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>Setup: freeze the demo heads first</div>
         <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 10 }}>Freezes {DEMO_HEADS.join(", ")} as "Fully Frozen" so the scenarios have something real to run against. Scenarios look for items by name (Dinner plates, Ap Knive (Banquet), Champagne Flute (Banquet), Masala try 9 box, Quarter plates, Monkey Bowl) — import them first via the VP's budget submission.</div>
-        {role === "President" || role === "General Manager" ? (
+        {role === "President" || isAdmin ? (
           <button style={btnStyle(C.navy)} onClick={() => { DEMO_HEADS.forEach((h) => freezeHead(h, "Fully Frozen")); }}>Freeze demo budget heads</button>
         ) : (
           <span style={{ fontSize: 12.5, color: C.amber }}>Sign in as the President to freeze the demo budget heads.</span>
@@ -118,9 +118,9 @@ export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBu
             </div>
           ))}
           <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-            {(role === "VP" || role === "General Manager") && <button onClick={() => setTab("vpdesk")} style={btnStyle(C.navy)}>Go to VP's Desk →</button>}
-            {(role === "President" || role === "General Manager") && <button onClick={() => setTab("president2nd")} style={btnStyle(C.navy)}>Go to President's 2nd Approval →</button>}
-            {role !== "VP" && role !== "President" && role !== "General Manager" && <span style={{ fontSize: 12, color: "#9AA1AC" }}>Sign in as the VP or the President to act on these requisitions.</span>}
+            {(role === "VP" || isAdmin) && <button onClick={() => setTab("vpdesk")} style={btnStyle(C.navy)}>Go to VP's Desk →</button>}
+            {(role === "President" || isAdmin) && <button onClick={() => setTab("president2nd")} style={btnStyle(C.navy)}>Go to President's 2nd Approval →</button>}
+            {role !== "VP" && role !== "President" && !isAdmin && <span style={{ fontSize: 12, color: "#9AA1AC" }}>Sign in as the VP or the President to act on these requisitions.</span>}
           </div>
         </div>
       )}

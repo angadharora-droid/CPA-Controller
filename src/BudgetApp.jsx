@@ -3,6 +3,7 @@ import { BASE_HEADS } from "./data/heads.js";
 import { api } from "./api.js";
 import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
+import { todayISO } from "./utils/po.js";
 import { C } from "./theme.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
@@ -20,8 +21,6 @@ import DemoTab from "./components/tabs/DemoTab.jsx";
 
 const ALL_ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
 
-/* The General Manager is a full-access administrator — every tab, every action. */
-const ADMIN_ROLE = "General Manager";
 
 /* Debounced write-back of one state slice to the API/MongoDB. */
 function useAutosave(slice, value, ready) {
@@ -46,7 +45,9 @@ function defaultFreeze() {
 
 export default function BudgetApp({ currentUser, onLogout }) {
   const role = currentUser.role;
-  const isAdmin = role === ADMIN_ROLE;
+  /* Admin is a flag on the account, not a role: the user keeps their workflow role (so the audit trail
+     and PO signatures record it) while every tab and every action stays open to them. */
+  const isAdmin = !!currentUser.isAdmin;
   const whoLabel = `${currentUser.name} (${role})`;
   const [tolerancePct, setTolerancePct] = useState(5);            // good-to-approve lane threshold
   const [secondApprovalPct, setSecondApprovalPct] = useState(15); // President's 2nd-approval threshold
@@ -445,20 +446,33 @@ export default function BudgetApp({ currentUser, onLogout }) {
   }
 
   /* ---------- PO / delivery / GRN actions ---------- */
-  function issuePO({ lineRefs, supplier, invoiceTo, consignee, paymentTerms, deliveryTerms, deliveryDate, dispatchThrough, destination }) {
+  function issuePO({
+    lineRefs, supplier, supplierAddress, supplierGstin, supplierState, supplierContact,
+    invoiceTo, consignee, referenceNo, paymentTerms, otherReferences, deliveryTerms, deliveryDate,
+    dispatchThrough, destination, discountPct, gstPct, gstType,
+  }) {
     if (!lineRefs.length) return null;
     const poId = `PO-CPA-${padNum(poCounter, 4)}`;
     setPoCounter((c) => c + 1);
     const lineSnapshots = lineRefs.map(({ prId, lineId }) => {
       const ln = getLine(prId, lineId);
+      const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
       const rate = ln.pmRate || ln.finalRate;
       return {
-        prId, lineId, itemName: ln.itemName, qty: ln.finalQty, rate, amount: ln.finalQty * rate, unit: "Nos", qtyReceived: 0,
+        prId, lineId, itemName: ln.itemName,
+        // what was actually requisitioned, falling back to the approved budget line
+        brand: ln.proposedBrand || (item && item.brand) || "",
+        spec: ln.proposedModel || (item && item.spec) || "",
+        qty: ln.finalQty, rate, amount: ln.finalQty * rate, unit: (item && item.unit) || "Nos", qtyReceived: 0,
       };
     });
     const po = {
-      id: poId, dated: nowStamp(), supplier, invoiceTo, consignee, paymentTerms, deliveryTerms,
+      id: poId, dated: nowStamp(), datedISO: todayISO(),
+      supplier, supplierAddress: supplierAddress || "", supplierGstin: supplierGstin || "", supplierState: supplierState || "", supplierContact: supplierContact || "",
+      invoiceTo, consignee,
+      referenceNo: referenceNo || "", paymentTerms, otherReferences: otherReferences || "", deliveryTerms,
       deliveryDate, dispatchThrough: dispatchThrough || "", destination: destination || "",
+      discountPct: Number(discountPct) || 0, gstPct: Number(gstPct) || 0, gstType: gstType === "IGST" ? "IGST" : "CGST_SGST",
       lines: lineSnapshots, status: "Issued",
       signatures: { vp: null, president: null, purchaseExecutive: null },
     };
@@ -497,6 +511,21 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`${grnId} recorded against ${poId} (Bill No. ${billNo || "—"}, dated ${billDate || "—"}): ${lines.length} line item(s) received.`);
     return grn;
   }
+
+  // POs issued before brand/spec were snapshotted: fill them in from the requisition line for display.
+  const posForView = useMemo(() => pos.map((po) => {
+    if (po.lines.every((l) => l.brand !== undefined && l.spec !== undefined)) return po;
+    return {
+      ...po,
+      lines: po.lines.map((l) => {
+        if (l.brand !== undefined && l.spec !== undefined) return l;
+        const pr = prs.find((p) => p.id === l.prId);
+        const ln = pr ? pr.lines.find((x) => x.lineId === l.lineId) : null;
+        const item = ln && ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
+        return { ...l, brand: (ln && ln.proposedBrand) || (item && item.brand) || "", spec: (ln && ln.proposedModel) || (item && item.spec) || "" };
+      }),
+    };
+  }), [pos, prs, items]);
 
   /* ---------- shared bits ---------- */
   const TABS = [
@@ -596,7 +625,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         {tab === "freeze" && (role === "VP" || role === "President" || isAdmin) && (
           <>
             {(role === "VP" || isAdmin) && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
-            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role }} />
+            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin }} />
           </>
         )}
         {tab === "itemstatus" && (
@@ -615,10 +644,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle }} />
         )}
         {tab === "issuepo" && (role === "Purchase Executive" || isAdmin) && (
-          <IssuePOTab {...{ allLines, issuePO, signPO, pos, cardStyle, role }} />
+          <IssuePOTab {...{ allLines, issuePO, signPO, cardStyle, role, isAdmin }} pos={posForView} />
         )}
         {tab === "calendar" && (role === "Store Manager" || role === "Purchase Executive" || isAdmin) && (
-          <DeliveryCalendarTab {...{ pos, cardStyle, signPO, role }} />
+          <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />
         )}
         {tab === "receive" && (role === "Store Manager" || isAdmin) && (
           <ReceiveGoodsTab {...{ pos, recordGRN, grns, cardStyle }} />
@@ -627,7 +656,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <AuditTab {...{ audit, cardStyle }} />
         )}
         {tab === "demo" && (
-          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, cardStyle }} />
+          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, cardStyle }} />
         )}
       </div>
     </div>
