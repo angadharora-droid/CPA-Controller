@@ -1,31 +1,49 @@
 import { createPortal } from "react-dom";
 import { C, btnStyle } from "../theme.js";
-import { COMPANY, fmtDateShort, fmtMoney, fmtSigned, fmtQty, amountInWords, computePOTotals } from "../utils/po.js";
+import { COMPANY, COMPANY_BLOCK, fmtDateShort, fmtMoney, fmtSigned, fmtQty, amountInWords, computePOTotals } from "../utils/po.js";
 
 /* When printing, hide the whole app and show only the PO copy rendered into a body-level portal,
    so the document comes out on its own page(s) with nothing else around it. */
 const PRINT_CSS = `
 .po-print-only { display: none; }
 @media print {
-  @page { size: A4 portrait; margin: 10mm; }
-  html, body { background: #fff !important; }
+  @page { size: A4 portrait; margin: 0; }
+  html, body { background: #fff !important; margin: 0; }
   #root { display: none !important; }
-  .po-print-only { display: block !important; }
+  .po-print-only { display: block !important; padding: 12mm 11mm; box-sizing: border-box; }
+  .po-doc { max-width: none !important; }
 }`;
 
 const SIG_LABELS = { vp: "VP", president: "President", purchaseExecutive: "Purchase Executive" };
 const INK = "#1a1a1a";
 const B = `1px solid ${INK}`;
 const label = { fontSize: 10, color: "#444", lineHeight: 1.3 };
-const value = { fontWeight: 700, fontSize: 11.5, lineHeight: 1.35, minHeight: 15 };
+const value = { fontWeight: 700, fontSize: 12, lineHeight: 1.35, minHeight: 15 };
 const box = { border: B, padding: "4px 6px", verticalAlign: "top" };
-const colCell = { borderLeft: B, borderRight: B, padding: "3px 6px", verticalAlign: "top", fontSize: 11, lineHeight: 1.3 };
+const colCell = { borderLeft: B, borderRight: B, padding: "3px 6px", verticalAlign: "top", fontSize: 11.5, lineHeight: 1.3 };
 const num = { ...colCell, textAlign: "right", whiteSpace: "nowrap" };
 const thStyle = { border: B, padding: "3px 6px", fontSize: 10, fontWeight: 400, color: "#333", textAlign: "center", whiteSpace: "nowrap" };
 
+/* POs issued before the structured block stored our own address as one comma-separated line;
+   print those with the current company block (name, address, GSTIN, state) instead. */
+function normalizeParty(text) {
+  const t = String(text || "").trim();
+  if (!t || t.includes("\n")) return t;
+  if (/^centre point am(a)?ravati/i.test(t)) return COMPANY_BLOCK;
+  return t;
+}
+
+/* A legacy supplier typed as "Name, address, GSTIN…" on one line: bold the name, wrap the rest. */
+function splitSupplier(po) {
+  const raw = String(po.supplier || "").trim();
+  if (po.supplierAddress || !raw.includes(", ")) return { name: raw, rest: "" };
+  const i = raw.indexOf(", ");
+  return { name: raw.slice(0, i), rest: raw.slice(i + 2) };
+}
+
 function TextLines({ text, boldFirst }) {
   return String(text || "").split("\n").map((line, i) => (
-    <div key={i} style={{ fontWeight: boldFirst && i === 0 ? 800 : 400, fontSize: i === 0 && boldFirst ? 11.5 : 11, lineHeight: 1.35 }}>{line || " "}</div>
+    <div key={i} style={{ fontWeight: boldFirst && i === 0 ? 800 : 400, fontSize: i === 0 && boldFirst ? 12 : 11.5, lineHeight: 1.35 }}>{line || " "}</div>
   ));
 }
 
@@ -42,8 +60,10 @@ function Cell({ title, children, style, colSpan }) {
 export function PODocument({ po }) {
   const t = computePOTotals(po);
   const half = t.gstPct / 2;
-  const signed = Object.entries(po.signatures || {}).filter(([, s]) => s);
   const dueOn = fmtDateShort(po.deliveryDate);
+  const supplier = splitSupplier(po);
+  // short orders get a taller items area so the voucher fills the sheet, as Tally's does
+  const spacer = Math.max(40, 280 - po.lines.length * 36);
 
   return (
     <div className="po-doc" style={{ background: "#fff", color: INK, fontFamily: "Arial, Helvetica, sans-serif", fontSize: 11, width: "100%", maxWidth: 820, margin: "0 auto", boxSizing: "border-box" }}>
@@ -57,15 +77,16 @@ export function PODocument({ po }) {
             <td rowSpan={5} style={{ ...box, padding: 0 }}>
               <div style={{ padding: "4px 6px", borderBottom: B }}>
                 <div style={label}>Invoice To</div>
-                <TextLines text={po.invoiceTo} boldFirst />
+                <TextLines text={normalizeParty(po.invoiceTo)} boldFirst />
               </div>
               <div style={{ padding: "4px 6px", borderBottom: B }}>
                 <div style={label}>Consignee (Ship to)</div>
-                <TextLines text={po.consignee} boldFirst />
+                <TextLines text={normalizeParty(po.consignee)} boldFirst />
               </div>
               <div style={{ padding: "4px 6px" }}>
                 <div style={label}>Supplier (Bill from)</div>
-                <div style={{ fontWeight: 800, fontSize: 11.5 }}>{po.supplier}</div>
+                <div style={{ fontWeight: 800, fontSize: 12 }}>{supplier.name}</div>
+                {supplier.rest && <div style={{ lineHeight: 1.35 }}>{supplier.rest}</div>}
                 {po.supplierAddress && <TextLines text={po.supplierAddress} />}
                 {po.supplierGstin && <div style={{ lineHeight: 1.35 }}>GSTIN/UIN<span style={{ display: "inline-block", width: 70 }} />: {po.supplierGstin}</div>}
                 {po.supplierState && <div style={{ lineHeight: 1.35 }}>State Name<span style={{ display: "inline-block", width: 62 }} />: {po.supplierState}</div>}
@@ -158,7 +179,7 @@ export function PODocument({ po }) {
           )}
           {/* breathing room before the total, like the printed voucher */}
           <tr>
-            <td style={{ ...colCell, height: 60 }} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} />
+            <td style={{ ...colCell, height: spacer }} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} />
           </tr>
           <tr style={{ fontWeight: 800 }}>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
@@ -191,22 +212,36 @@ export function PODocument({ po }) {
         </tbody>
       </table>
 
-      {/* signatory */}
+      {/* digital signatures: VP, President, Purchase Executive */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: -1, tableLayout: "fixed" }}>
         <tbody>
           <tr>
-            <td style={{ ...box, borderTop: "none", borderRight: "none", height: 78, width: "50%" }} />
-            <td style={{ ...box, borderTop: "none", width: "50%", textAlign: "right", position: "relative" }}>
-              <div style={{ fontWeight: 700, fontSize: 10 }}>for {COMPANY.name}</div>
-              <div style={{ minHeight: 40, display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", gap: 2, margin: "6px 0" }}>
-                {signed.map(([key, s]) => (
-                  <div key={key} style={{ fontSize: 10.5 }}>
-                    <span style={{ fontFamily: "'Segoe Script', 'Brush Script MT', cursive", fontSize: 13, color: C.navy }}>{s.by}</span>
-                    <span style={{ color: "#555" }}> · {SIG_LABELS[key] || key}, {s.date}</span>
-                  </div>
-                ))}
+            {Object.keys(SIG_LABELS).map((key) => {
+              const s = po.signatures?.[key];
+              return (
+                <td key={key} style={{ ...box, borderTop: "none", textAlign: "center", height: 62, verticalAlign: "top", padding: "6px 8px" }}>
+                  <div style={{ fontSize: 9.5, color: "#666", textTransform: "uppercase", letterSpacing: 0.4 }}>{SIG_LABELS[key]}</div>
+                  {s ? (
+                    <>
+                      <div style={{ fontFamily: "'Segoe Script', 'Brush Script MT', cursive", fontSize: 15, color: C.navy, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.by}</div>
+                      <div style={{ fontSize: 9.5, color: "#555", marginTop: 2 }}>Signed {s.date}</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 10.5, color: "#888", marginTop: 16 }}>Awaiting {SIG_LABELS[key]}'s signature</div>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <td colSpan={3} style={{ ...box, borderTop: "none", padding: 0 }}>
+              <div style={{ display: "flex" }}>
+                <div style={{ flex: 1, minHeight: 70 }} />
+                <div style={{ flex: 1, borderLeft: B, padding: "6px 8px", textAlign: "right", display: "flex", flexDirection: "column", justifyContent: "space-between", minHeight: 70, boxSizing: "border-box" }}>
+                  <div style={{ fontWeight: 700, fontSize: 10.5 }}>for {COMPANY.name}</div>
+                  <div style={{ fontSize: 10.5 }}>Authorised Signatory</div>
+                </div>
               </div>
-              <div style={{ fontSize: 10.5 }}>Authorised Signatory</div>
             </td>
           </tr>
         </tbody>
