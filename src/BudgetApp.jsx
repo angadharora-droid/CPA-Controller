@@ -166,9 +166,6 @@ export default function BudgetApp({ currentUser, onLogout }) {
 
   const budgetCommitted = useMemo(() => Object.values(headCommitted).reduce((a, b) => a + b, 0), [headCommitted]);
 
-  const itemsApprovedCount = allLines.filter((l) => (l.vpDecision === "Approved" || l.vpDecision === "Modified & Approved") && (!l.needsSecondApproval || l.presidentDecision === "Approved")).length;
-  const itemsOrderedCount = pos.reduce((n, po) => n + po.lines.length, 0);
-  const itemsReceivedCount = grns.reduce((n, g) => n + g.lines.length, 0);
 
   /* ---------- budget / item actions ---------- */
   function updateItem(id, patch) {
@@ -620,7 +617,8 @@ export default function BudgetApp({ currentUser, onLogout }) {
 
       <div style={{ padding: 22, maxWidth: 1400, margin: "0 auto" }}>
         {tab === "dashboard" && (
-          <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, itemsApprovedCount, itemsOrderedCount, itemsReceivedCount, allLines, pos, grns, tolerancePct }} canOpenFreeze={role === "VP" || role === "President" || isAdmin} />
+          <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, allLines, grns, tolerancePct }}
+            pos={posForView} canOpenFreeze={role === "VP" || role === "President" || isAdmin} canOpenTab={(id) => visibleTabs.some((t) => t.id === id)} />
         )}
         {tab === "freeze" && (role === "VP" || role === "President" || isAdmin) && (
           <>
