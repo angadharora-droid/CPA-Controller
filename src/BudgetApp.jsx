@@ -20,6 +20,9 @@ import DemoTab from "./components/tabs/DemoTab.jsx";
 
 const ALL_ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
 
+/* The General Manager is a full-access administrator — every tab, every action. */
+const ADMIN_ROLE = "General Manager";
+
 /* Debounced write-back of one state slice to the API/MongoDB. */
 function useAutosave(slice, value, ready) {
   const skippedFirst = React.useRef(false);
@@ -43,6 +46,7 @@ function defaultFreeze() {
 
 export default function BudgetApp({ currentUser, onLogout }) {
   const role = currentUser.role;
+  const isAdmin = role === ADMIN_ROLE;
   const whoLabel = `${currentUser.name} (${role})`;
   const [tolerancePct, setTolerancePct] = useState(5);            // good-to-approve lane threshold
   const [secondApprovalPct, setSecondApprovalPct] = useState(15); // President's 2nd-approval threshold
@@ -509,7 +513,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     { id: "audit", label: "Audit Trail", roles: ALL_ROLES },
     { id: "demo", label: "Demo Scenarios", roles: ALL_ROLES },
   ];
-  const visibleTabs = TABS.filter((t) => t.roles.includes(role));
+  const visibleTabs = TABS.filter((t) => isAdmin || t.roles.includes(role));
   React.useEffect(() => { if (!visibleTabs.find((t) => t.id === tab)) setTab("dashboard"); }, [role]);
 
   const cardStyle = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18 };
@@ -587,36 +591,36 @@ export default function BudgetApp({ currentUser, onLogout }) {
 
       <div style={{ padding: 22, maxWidth: 1400, margin: "0 auto" }}>
         {tab === "dashboard" && (
-          <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, itemsApprovedCount, itemsOrderedCount, itemsReceivedCount, allLines, pos, grns, tolerancePct }} canOpenFreeze={role === "VP" || role === "President"} />
+          <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, itemsApprovedCount, itemsOrderedCount, itemsReceivedCount, allLines, pos, grns, tolerancePct }} canOpenFreeze={role === "VP" || role === "President" || isAdmin} />
         )}
-        {tab === "freeze" && (role === "VP" || role === "President") && (
+        {tab === "freeze" && (role === "VP" || role === "President" || isAdmin) && (
           <>
-            {role === "VP" && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
+            {(role === "VP" || isAdmin) && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
             <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role }} />
           </>
         )}
         {tab === "itemstatus" && (
           <ItemStatusTab {...{ HEADS, items, cardStyle }} />
         )}
-        {tab === "raisepr" && role === "Department Head" && (
+        {tab === "raisepr" && (role === "Department Head" || isAdmin) && (
           <RaisePRTab {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }} />
         )}
-        {tab === "vpdesk" && role === "VP" && (
+        {tab === "vpdesk" && (role === "VP" || isAdmin) && (
           <VPDeskTab {...{ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct }} />
         )}
-        {tab === "president2nd" && role === "President" && (
+        {tab === "president2nd" && (role === "President" || isAdmin) && (
           <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct }} />
         )}
-        {tab === "pmqueue" && role === "Purchase Manager" && (
+        {tab === "pmqueue" && (role === "Purchase Manager" || isAdmin) && (
           <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle }} />
         )}
-        {tab === "issuepo" && role === "Purchase Executive" && (
+        {tab === "issuepo" && (role === "Purchase Executive" || isAdmin) && (
           <IssuePOTab {...{ allLines, issuePO, signPO, pos, cardStyle, role }} />
         )}
-        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Executive") && (
+        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Executive" || isAdmin) && (
           <DeliveryCalendarTab {...{ pos, cardStyle, signPO, role }} />
         )}
-        {tab === "receive" && role === "Store Manager" && (
+        {tab === "receive" && (role === "Store Manager" || isAdmin) && (
           <ReceiveGoodsTab {...{ pos, recordGRN, grns, cardStyle }} />
         )}
         {tab === "audit" && (

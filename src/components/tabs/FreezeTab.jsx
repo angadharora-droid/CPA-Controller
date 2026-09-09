@@ -15,7 +15,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
   const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const frozen = (headFreeze[selectedHead] || "Not Frozen") !== "Not Frozen";
-  const canFreeze = role === "President";
+  const canFreeze = role === "President" || role === "General Manager";
   const color = reconColor(selectedHead);
   const dupes = useMemo(() => {
     const counts = {};
