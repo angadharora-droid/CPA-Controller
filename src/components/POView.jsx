@@ -212,27 +212,9 @@ export function PODocument({ po }) {
         </tbody>
       </table>
 
-      {/* digital signatures: VP, President, Purchase Executive */}
+      {/* authorised signatory, then the digital signature boxes: VP, President, Purchase Executive */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: -1, tableLayout: "fixed" }}>
         <tbody>
-          <tr>
-            {Object.keys(SIG_LABELS).map((key) => {
-              const s = po.signatures?.[key];
-              return (
-                <td key={key} style={{ ...box, borderTop: "none", textAlign: "center", height: 62, verticalAlign: "top", padding: "6px 8px" }}>
-                  <div style={{ fontSize: 9.5, color: "#666", textTransform: "uppercase", letterSpacing: 0.4 }}>{SIG_LABELS[key]}</div>
-                  {s ? (
-                    <>
-                      <div style={{ fontFamily: "'Segoe Script', 'Brush Script MT', cursive", fontSize: 15, color: C.navy, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.by}</div>
-                      <div style={{ fontSize: 9.5, color: "#555", marginTop: 2 }}>Signed {s.date}</div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: 10.5, color: "#888", marginTop: 16 }}>Awaiting {SIG_LABELS[key]}'s signature</div>
-                  )}
-                </td>
-              );
-            })}
-          </tr>
           <tr>
             <td colSpan={3} style={{ ...box, borderTop: "none", padding: 0 }}>
               <div style={{ display: "flex" }}>
@@ -243,6 +225,22 @@ export function PODocument({ po }) {
                 </div>
               </div>
             </td>
+          </tr>
+          <tr>
+            {Object.keys(SIG_LABELS).map((key) => {
+              const s = po.signatures?.[key];
+              return (
+                <td key={key} style={{ ...box, borderTop: "none", textAlign: "center", height: 62, verticalAlign: "top", padding: "6px 8px" }}>
+                  <div style={{ fontSize: 9.5, color: "#666", textTransform: "uppercase", letterSpacing: 0.4 }}>{SIG_LABELS[key]}</div>
+                  {s && (
+                    <>
+                      <div style={{ fontFamily: "'Segoe Script', 'Brush Script MT', cursive", fontSize: 15, color: C.navy, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.by}</div>
+                      <div style={{ fontSize: 9.5, color: "#555", marginTop: 2 }}>Signed {s.date}</div>
+                    </>
+                  )}
+                </td>
+              );
+            })}
           </tr>
         </tbody>
       </table>
