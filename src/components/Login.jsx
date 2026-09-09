@@ -74,7 +74,7 @@ export default function Login({ onLogin }) {
           }}>{busy ? "Signing in…" : "Sign In"}</button>
 
           <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.line}`, fontSize: 11.5, color: "#9AA1AC", lineHeight: 1.7 }}>
-            Access is limited to authorised users: <b>VP</b>, <b>President</b>, <b>Purchase Manager</b>, <b>Purchase Executive</b>, <b>Store Manager</b> and <b>Department Head</b>.
+            Access is limited to authorised users: <b>General Manager</b>, <b>VP</b>, <b>President</b>, <b>Purchase Manager</b>, <b>Purchase Executive</b>, <b>Store Manager</b> and <b>Department Head</b>.
           </div>
         </form>
       </div>

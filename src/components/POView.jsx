@@ -6,7 +6,7 @@ export default function POView({ po, signPO, role }) {
   const total = po.lines.reduce((s, l) => s + l.amount, 0);
   const SigBlock = ({ roleKey, label, requiredRole }) => {
     const sig = po.signatures[roleKey];
-    const canSign = role === requiredRole && !sig;
+    const canSign = (role === requiredRole || role === "General Manager") && !sig;
     return (
       <div style={{ flex: 1, border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
         <div style={{ fontSize: 10.5, color: "#9AA1AC", textTransform: "uppercase" }}>{label}</div>

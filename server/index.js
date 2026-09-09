@@ -21,7 +21,7 @@ const TOKEN_TTL = "12h";
    An older "main" document is archived (never deleted) and a fresh one is seeded. */
 const SCHEMA_VERSION = 2;
 
-const ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
+const ROLES = ["General Manager", "VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
 
 /* ---------- models ---------- */
 const userSchema = new mongoose.Schema({
@@ -52,6 +52,7 @@ const AppState = mongoose.model("AppState", stateSchema);
 
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
+  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "General Manager", title: "General Manager — Full Administrative Access" },
   { userId: "amit", password: "VP@2026", name: "Amit", role: "VP", title: "Vice President — Budget Submission & First Approval" },
   { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
   { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation" },
