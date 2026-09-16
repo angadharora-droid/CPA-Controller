@@ -19,7 +19,7 @@ import ReceiveGoodsTab from "./components/tabs/ReceiveGoodsTab.jsx";
 import AuditTab from "./components/tabs/AuditTab.jsx";
 import DemoTab from "./components/tabs/DemoTab.jsx";
 
-const ALL_ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
+const ALL_ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head"];
 
 
 /* Debounced write-back of one state slice to the API/MongoDB. */
@@ -35,6 +35,15 @@ function useAutosave(slice, value, ready) {
     }, 600);
     return () => clearTimeout(t);
   }, [slice, value, ready]);
+}
+
+/* The Purchase Executive role was merged into Purchase Manager: POs issued before the merge carry the
+   signature under the old key, so move it across (the merged role signs in that box from now on). */
+function migratePOSignatures(po) {
+  const sig = po.signatures;
+  if (!sig || !("purchaseExecutive" in sig)) return po;
+  const { purchaseExecutive, ...rest } = sig;
+  return { ...po, signatures: { ...rest, purchaseManager: rest.purchaseManager || purchaseExecutive || null } };
 }
 
 function defaultFreeze() {
@@ -80,7 +89,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         if (!alive) return;
         setItems(s.items || []);
         setPrs(s.prs || []);
-        setPos(s.pos || []);
+        setPos((s.pos || []).map(migratePOSignatures));
         setGrns(s.grns || []);
         setAudit(s.audit || []);
         const hf = defaultFreeze();
@@ -113,7 +122,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     setAudit((a) => [{ ts: nowStamp(), who: who || whoLabel, text }, ...a]);
   }, [whoLabel]);
 
-  // flatten all PR lines with parent PR context, for use across VP/President/PM/PE/Store Manager/Dashboard
+  // flatten all PR lines with parent PR context, for use across VP/President/Purchase Manager/Store Manager/Dashboard
   const allLines = useMemo(() => {
     const out = [];
     prs.forEach((pr) => {
@@ -471,11 +480,11 @@ export default function BudgetApp({ currentUser, onLogout }) {
       deliveryDate, dispatchThrough: dispatchThrough || "", destination: destination || "",
       discountPct: Number(discountPct) || 0, gstPct: Number(gstPct) || 0, gstType: gstType === "IGST" ? "IGST" : "CGST_SGST",
       lines: lineSnapshots, status: "Issued",
-      signatures: { vp: null, president: null, purchaseExecutive: null },
+      signatures: { vp: null, president: null, purchaseManager: null },
     };
     setPos((prev) => [po, ...prev]);
     lineRefs.forEach(({ prId, lineId }) => updateLine(prId, lineId, { status: "PO Issued", poId }));
-    logAudit(`${poId} issued by Purchase Executive for ${lineSnapshots.length} line item(s) from supplier "${supplier}", expected delivery ${deliveryDate || "TBD"}.`);
+    logAudit(`${poId} issued by Purchase Manager for ${lineSnapshots.length} line item(s) from supplier "${supplier}", expected delivery ${deliveryDate || "TBD"}.`);
     return po;
   }
 
@@ -533,8 +542,8 @@ export default function BudgetApp({ currentUser, onLogout }) {
     { id: "vpdesk", label: "VP's Desk", roles: ["VP"] },
     { id: "president2nd", label: "President's 2nd Approval", roles: ["President"] },
     { id: "pmqueue", label: "Purchase Manager", roles: ["Purchase Manager"] },
-    { id: "issuepo", label: "Issue PO", roles: ["Purchase Executive"] },
-    { id: "calendar", label: "Delivery Calendar", roles: ["Store Manager", "Purchase Executive"] },
+    { id: "issuepo", label: "Issue PO", roles: ["Purchase Manager"] },
+    { id: "calendar", label: "Delivery Calendar", roles: ["Store Manager", "Purchase Manager"] },
     { id: "receive", label: "Receive Material (GRN)", roles: ["Store Manager"] },
     { id: "audit", label: "Audit Trail", roles: ALL_ROLES },
     { id: "demo", label: "Demo Scenarios", roles: ALL_ROLES },
@@ -641,10 +650,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
         {tab === "pmqueue" && (role === "Purchase Manager" || isAdmin) && (
           <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle }} />
         )}
-        {tab === "issuepo" && (role === "Purchase Executive" || isAdmin) && (
+        {tab === "issuepo" && (role === "Purchase Manager" || isAdmin) && (
           <IssuePOTab {...{ allLines, issuePO, signPO, cardStyle, role, isAdmin }} pos={posForView} />
         )}
-        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Executive" || isAdmin) && (
+        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || isAdmin) && (
           <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />
         )}
         {tab === "receive" && (role === "Store Manager" || isAdmin) && (

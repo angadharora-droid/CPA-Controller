@@ -21,7 +21,7 @@ const TOKEN_TTL = "12h";
    An older "main" document is archived (never deleted) and a fresh one is seeded. */
 const SCHEMA_VERSION = 2;
 
-const ROLES = ["VP", "President", "Purchase Manager", "Purchase Executive", "Store Manager", "Department Head"];
+const ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head"];
 
 /* ---------- models ---------- */
 const userSchema = new mongoose.Schema({
@@ -56,8 +56,7 @@ const AppState = mongoose.model("AppState", stateSchema);
 const SEED_USERS = [
   { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
   { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
-  { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation" },
-  { userId: "purchaseexec", password: "PurchaseExec@2026", name: "Purchase Executive", role: "Purchase Executive", title: "Purchase Executive — Purchase Orders" },
+  { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
   { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
   { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
 ];
@@ -132,6 +131,17 @@ async function migrateUsers() {
   // Retire the separate VP-only login that the merged account replaces.
   const retired = await User.deleteOne({ userId: "amit" });
   if (retired.deletedCount) console.log('Removed the retired "amit" login (merged into "amitkhandwal").');
+
+  // The Purchase Executive role was merged into Purchase Manager: one person negotiates rates, issues POs
+  // and signs them. Retire the separate "purchaseexec" login and fold any remaining account carrying the
+  // old role into the merged one.
+  const pm = SEED_USERS.find((u) => u.userId === "purchase");
+  const retiredPE = await User.deleteOne({ userId: "purchaseexec" });
+  if (retiredPE.deletedCount) console.log('Removed the retired "purchaseexec" login (merged into "purchase").');
+  const foldedPE = await User.updateMany({ role: "Purchase Executive" }, { $set: { role: "Purchase Manager" } });
+  if (foldedPE.modifiedCount) console.log(`Migrated ${foldedPE.modifiedCount} account(s) from role Purchase Executive to Purchase Manager.`);
+  const retitled = await User.updateOne({ userId: "purchase", title: "Purchase Manager — Rate Negotiation" }, { $set: { title: pm.title } });
+  if (retitled.modifiedCount) console.log('Updated the "purchase" account title for the merged role.');
 }
 
 /* ---------- auth ---------- */

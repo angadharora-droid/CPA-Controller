@@ -14,7 +14,7 @@ const PRINT_CSS = `
   .po-doc { max-width: none !important; }
 }`;
 
-const SIG_LABELS = { vp: "VP", president: "President", purchaseExecutive: "Purchase Executive" };
+const SIG_LABELS = { vp: "VP", president: "President", purchaseManager: "Purchase Manager" };
 const INK = "#1a1a1a";
 const B = `1px solid ${INK}`;
 const label = { fontSize: 10, color: "#444", lineHeight: 1.3 };
@@ -212,7 +212,7 @@ export function PODocument({ po }) {
         </tbody>
       </table>
 
-      {/* authorised signatory, then the digital signature boxes: VP, President, Purchase Executive */}
+      {/* authorised signatory, then the digital signature boxes: VP, President, Purchase Manager */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: -1, tableLayout: "fixed" }}>
         <tbody>
           <tr>
@@ -310,7 +310,7 @@ export default function POView({ po, signPO, role, isAdmin }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <SigBlock roleKey="vp" label="VP" requiredRole="VP" />
           <SigBlock roleKey="president" label="President" requiredRole="President" />
-          <SigBlock roleKey="purchaseExecutive" label="Purchase Executive" requiredRole="Purchase Executive" />
+          <SigBlock roleKey="purchaseManager" label="Purchase Manager" requiredRole="Purchase Manager" />
         </div>
         <button onClick={() => window.print()} style={{ ...btnStyle(C.navy), marginTop: 14 }}>Print / Download PO</button>
       </div>

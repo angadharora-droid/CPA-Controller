@@ -21,11 +21,12 @@ On first run the server seeds MongoDB with the user accounts below and an empty 
 | `amitkhandwal` | `Amit@GM#2026`     | VP (admin)         | Budget import & review, VP's Desk (first approval); admin flag opens every tab and action |
 | `arjun`        | `President@2026`   | President          | Budget Review & Freeze, President's 2nd Approval           |
 | `depthead`     | `Dept@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition       |
-| `purchase`     | `Purchase@2026`    | Purchase Manager   | Rate negotiation (down only), mark lines Ready for PO      |
-| `purchaseexec` | `PurchaseExec@2026`| Purchase Executive | Issue PO, Delivery Calendar                                |
+| `purchase`     | `Purchase@2026`    | Purchase Manager   | Rate negotiation (down only), mark lines Ready for PO, Issue PO, Delivery Calendar |
 | `store`        | `Store@2026`       | Store Manager      | Delivery Calendar, Receive Material (GRN)                  |
 
 Every role sees the Executive Dashboard, Audit Trail and Demo Scenarios. Change the passwords in MongoDB (`users` collection) before going live.
+
+The former Purchase Executive role has been merged into Purchase Manager: on start-up the server removes the old `purchaseexec` login, moves any account still carrying that role to Purchase Manager, and the app moves any Purchase Executive signature on an existing PO into the Purchase Manager box.
 
 ## Budget submission workbook (VP import)
 
