@@ -10,7 +10,7 @@ const GST_TYPES = [
   { id: "IGST", label: "IGST (inter-state)" },
 ];
 
-/* ================= ISSUE PO (Purchase Executive) ================= */
+/* ================= ISSUE PO (Purchase Manager) ================= */
 export default function IssuePOTab({ allLines, issuePO, signPO, pos, cardStyle, role, isAdmin }) {
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
