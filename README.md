@@ -29,6 +29,18 @@ Every role sees the Executive Dashboard, Audit Trail and Demo Scenarios. The Vie
 
 The former Purchase Executive role has been merged into Purchase Manager: on start-up the server removes the old `purchaseexec` login, moves any account still carrying that role to Purchase Manager, and the app moves any Purchase Executive signature on an existing PO into the Purchase Manager box.
 
+## Several people working at once
+
+Every open browser keeps itself current and can never save an old copy over newer work:
+
+- Each piece of app state (items, requisitions, POs, GRNs, settings...) has a revision number. A save names the revision it started from; if someone else saved that piece since, the server refuses it (`409`) - and one action that touches several pieces (e.g. requisition lines + item commitments) is written all together or not at all.
+- A refused save is not lost: the browser fetches the newer data, merges the unsaved change on top of it (`src/utils/merge.js`) and saves again. Two people approving against the same item both count; two requisitions that took the same PR number are renumbered; only a real clash - the same field of the same record changed two ways - keeps the first person's version and tells the second.
+- The audit trail is only ever added to, never replaced.
+- Every 5 seconds, and whenever the window gets focus, the browser asks whether anything changed and re-reads just those pieces (`src/sync.js`). A red banner shows while a change has not reached the server (connection lost, session expired).
+- After deploying this, everyone must refresh their browser once: a page opened before the upgrade is refused when it tries to save ("This page is out of date").
+
+Manual data fixes must go through `PUT /api/state` semantics too - at the very least bump `revs.<slice>` for every slice they write, or open browsers will not notice the change. Take a backup first with `node scripts/backup-state.mjs`.
+
 ## Budget submission workbook (VP import)
 
 The VP uploads the filled "CPA Budget Submission Template" (.xlsx). The importer reads the sheet whose name contains "Budget Submission" (or the first sheet), finds the row whose first cell is `Item Name`, and maps the columns in order:

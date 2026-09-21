@@ -11,9 +11,10 @@ function balanceLeft(item, pendingQtyByItem) {
   return (item.qty || 0) - (item.committedQty || 0) - (pendingQtyByItem[item.id] || 0);
 }
 
-/* Never shown as a minus: an overdrawn item reads "Over by N". */
+/* What can still be requisitioned. An item that is already over its approved quantity has nothing
+   left, so it reads 0 — never a minus and never "Over by"; the VP's Desk is where over-quantity shows. */
 function BalanceText({ left }) {
-  return left < 0 ? <span style={{ color: C.red, fontWeight: 700 }}>Over by {fmtNum(-left)}</span> : fmtNum(left);
+  return fmtNum(Math.max(0, left));
 }
 
 function BalanceCell({ item, pendingQtyByItem, padding }) {

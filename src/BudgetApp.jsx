@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { BASE_HEADS } from "./data/heads.js";
 import { api } from "./api.js";
+import { createStateSync } from "./sync.js";
 import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
 import { todayISO, computeTransport, poIsLocked } from "./utils/po.js";
@@ -32,21 +33,6 @@ const PO_EDITABLE = {
 };
 
 
-/* Debounced write-back of one state slice to the API/MongoDB. */
-function useAutosave(slice, value, ready) {
-  const skippedFirst = React.useRef(false);
-  React.useEffect(() => {
-    if (!ready) return;
-    if (!skippedFirst.current) { skippedFirst.current = true; return; }
-    const t = setTimeout(() => {
-      api(`/state/${slice}`, { method: "PUT", body: { value } }).catch((err) => {
-        console.error(`Failed to save ${slice}:`, err.message);
-      });
-    }, 600);
-    return () => clearTimeout(t);
-  }, [slice, value, ready]);
-}
-
 /* The Purchase Executive role was merged into Purchase Manager: POs issued before the merge carry the
    signature under the old key, so move it across (the merged role signs in that box from now on). */
 function migratePOSignatures(po) {
@@ -61,6 +47,27 @@ function defaultFreeze() {
   BASE_HEADS.forEach((h) => (o[h.name] = "Not Frozen"));
   return o;
 }
+
+/* How each slice of app state arrives from the server -> the value the app works with. */
+const NORMALIZE = {
+  items: (v) => v || [],
+  prs: (v) => v || [],
+  prCounter: (v) => (typeof v === "number" ? v : 1),
+  pos: (v) => (v || []).map(migratePOSignatures),
+  poCounter: (v) => (typeof v === "number" ? v : 1),
+  grns: (v) => v || [],
+  audit: (v) => v || [],
+  headFreeze: (v) => {
+    const hf = defaultFreeze();
+    Object.keys(hf).forEach((k) => { if (v && v[k]) hf[k] = v[k]; });
+    return hf;
+  },
+  ceilOverrides: (v) => v || {},
+  tolerancePct: (v) => (typeof v === "number" ? v : 5),
+  secondApprovalPct: (v) => (typeof v === "number" ? v : 15),
+};
+
+const POLL_MS = 5000; // how often an open browser asks the server whether anything changed
 
 export default function BudgetApp({ currentUser, onLogout }) {
   const role = currentUser.role;
@@ -84,7 +91,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
   const [selectedHead, setSelectedHead] = useState(HEADS[0].name);
   const [subCategoryFilter, setSubCategoryFilter] = useState("All");
 
-  // working state — loaded from the API / MongoDB and autosaved back per slice
+  // working state — loaded from the API / MongoDB, saved back and kept current by the sync engine (sync.js)
   const [items, setItems] = useState([]);
   const [headFreeze, setHeadFreeze] = useState(defaultFreeze);
   const [prs, setPrs] = useState([]);           // bundled PRs: { id, raisedBy, dept, urgency, requiredBy, submittedAt, lines:[...] }
@@ -96,42 +103,39 @@ export default function BudgetApp({ currentUser, onLogout }) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
 
+  const [syncNotes, setSyncNotes] = useState({}); // "clash" | "unsaved" -> message shown above the tabs
+  const sync = React.useRef(null);
+
   React.useEffect(() => {
     let alive = true;
-    api("/state")
-      .then((s) => {
+    const engine = createStateSync({
+      api, normalize: NORMALIZE, readOnly,
+      adopt: (n) => {
         if (!alive) return;
-        setItems(s.items || []);
-        setPrs(s.prs || []);
-        setPos((s.pos || []).map(migratePOSignatures));
-        setGrns(s.grns || []);
-        setAudit(s.audit || []);
-        const hf = defaultFreeze();
-        Object.keys(hf).forEach((k) => { if (s.headFreeze && s.headFreeze[k]) hf[k] = s.headFreeze[k]; });
-        setHeadFreeze(hf);
-        setCeilOverrides(s.ceilOverrides || {});
-        if (typeof s.tolerancePct === "number") setTolerancePct(s.tolerancePct);
-        if (typeof s.secondApprovalPct === "number") setSecondApprovalPct(s.secondApprovalPct);
-        if (typeof s.prCounter === "number") setPrCounter(s.prCounter);
-        if (typeof s.poCounter === "number") setPoCounter(s.poCounter);
-        setLoaded(true);
-      })
-      .catch((err) => { if (alive) setLoadError(err.message); });
-    return () => { alive = false; };
-  }, []);
+        setItems(n.items); setPrs(n.prs); setPrCounter(n.prCounter); setPos(n.pos); setPoCounter(n.poCounter);
+        setGrns(n.grns); setAudit(n.audit); setHeadFreeze(n.headFreeze); setCeilOverrides(n.ceilOverrides);
+        setTolerancePct(n.tolerancePct); setSecondApprovalPct(n.secondApprovalPct);
+      },
+      notify: (kind, text) => { if (alive) setSyncNotes((m) => ((m[kind] || null) === (text || null) ? m : { ...m, [kind]: text || null })); },
+    });
+    sync.current = engine;
+    engine.load().then(() => { if (alive) setLoaded(true); }).catch((err) => { if (alive) setLoadError(err.message); });
+    // other people's work shows up by itself: look every few seconds, and at once when the window is picked up again
+    const look = () => { if (!document.hidden) engine.poll().catch(() => {}); };
+    const every = setInterval(look, POLL_MS);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      alive = false; engine.stop(); clearInterval(every);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [readOnly]);
 
-  const canSave = loaded && !readOnly;
-  useAutosave("items", items, canSave);
-  useAutosave("prs", prs, canSave);
-  useAutosave("prCounter", prCounter, canSave);
-  useAutosave("pos", pos, canSave);
-  useAutosave("poCounter", poCounter, canSave);
-  useAutosave("grns", grns, canSave);
-  useAutosave("audit", audit, canSave);
-  useAutosave("headFreeze", headFreeze, canSave);
-  useAutosave("ceilOverrides", ceilOverrides, canSave);
-  useAutosave("tolerancePct", tolerancePct, canSave);
-  useAutosave("secondApprovalPct", secondApprovalPct, canSave);
+  // every change on screen goes to the engine, which saves whatever differs from the server's copy
+  React.useEffect(() => {
+    if (loaded) sync.current.changed({ items, prs, prCounter, pos, poCounter, grns, audit, headFreeze, ceilOverrides, tolerancePct, secondApprovalPct });
+  }, [loaded, items, prs, prCounter, pos, poCounter, grns, audit, headFreeze, ceilOverrides, tolerancePct, secondApprovalPct]);
 
   const logAudit = useCallback((text, who) => {
     setAudit((a) => [{ ts: nowStamp(), who: who || whoLabel, text }, ...a]);
@@ -703,6 +707,17 @@ export default function BudgetApp({ currentUser, onLogout }) {
       </div>
 
       <div style={{ padding: 22, maxWidth: 1400, margin: "0 auto" }}>
+        {syncNotes.unsaved && (
+          <div style={{ background: "#FCEAEA", border: `1px solid ${C.red}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.red, fontWeight: 600 }}>
+            {syncNotes.unsaved}
+          </div>
+        )}
+        {syncNotes.clash && (
+          <div style={{ background: "#FDF2E3", border: `1px solid ${C.amber}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.amber, fontWeight: 600, display: "flex", gap: 12, alignItems: "flex-start", justifyContent: "space-between" }}>
+            <span>{syncNotes.clash}</span>
+            <button onClick={() => setSyncNotes((m) => ({ ...m, clash: null }))} style={{ background: "transparent", border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>OK</button>
+          </div>
+        )}
         {readOnly && (
           <div style={{ background: "#FDF2E3", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.amber, fontWeight: 600 }}>
             View-only access — every screen is open to you, but nothing can be added, edited, approved, signed or received from this login.

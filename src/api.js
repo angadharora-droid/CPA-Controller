@@ -28,7 +28,8 @@ export async function api(path, { method = "GET", body } = {}) {
   if (res.status === 401 && path !== "/login") clearToken();
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Request failed (${res.status}).`);
+    // status and body travel with the error: a refused save (409) is handled differently from a dropped connection
+    throw Object.assign(new Error(data.error || `Request failed (${res.status}).`), { status: res.status, data });
   }
   return res.json();
 }

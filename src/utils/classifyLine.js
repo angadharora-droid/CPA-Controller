@@ -26,7 +26,12 @@ export function classifyLine(item, requestedQty, requestedRate, proposedBrand, p
   if (specChanged) { lane = "exception"; reasons.push("Model/Specs differ from the approved submission"); }
   if (specBlank) { lane = "exception"; reasons.push("Model/Specs left blank"); }
   if (variancePct > tolerancePct) { lane = "exception"; reasons.push(`Rate variance ${variancePct.toFixed(2)}% exceeds the ${tolerancePct}% good-to-approve threshold`); }
-  if (requestedQty > remainingQty) { lane = "exception"; reasons.push(`Quantity exceeds remaining approved balance by ${fmtNum(requestedQty - remainingQty)} ${item.unit || "Nos"}${pendingQty > 0 ? ` (${fmtNum(pendingQty)} already awaiting approval on other requisitions)` : ""}`); }
+  if (requestedQty > remainingQty) {
+    lane = "exception";
+    const unit = item.unit || "Nos";
+    const used = [(item.committedQty || 0) > 0 && `${fmtNum(item.committedQty)} already approved`, pendingQty > 0 && `${fmtNum(pendingQty)} awaiting approval on other requisitions`].filter(Boolean).join(", ");
+    reasons.push(`Quantity is above the approved quantity — asked for ${fmtNum(requestedQty)} ${unit} but only ${fmtNum(Math.max(0, remainingQty))} of the approved ${fmtNum(item.qty || 0)} ${unit} is left${used ? ` (${used})` : ""}: over by ${fmtNum(requestedQty - Math.max(0, remainingQty))} ${unit}`);
+  }
   if (reasons.length === 0) reasons.push("Matches approved brand, specs, rate and quantity");
 
   const needsSecondApproval = variancePct > secondApprovalPct;
