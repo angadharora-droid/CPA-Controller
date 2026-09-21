@@ -2,7 +2,8 @@ import { useState } from "react";
 import { C, th, thR, cellInput, inputStyle, btnStyle } from "../../theme.js";
 import { fmtNum } from "../../utils/format.js";
 import { computeTransport, fmtMoney, stateCodeOf, gstTypeForState } from "../../utils/po.js";
-import { Field } from "../ui.jsx";
+import { matchesQuery } from "../../utils/search.js";
+import { Field, SearchBox } from "../ui.jsx";
 import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
 
 /* Transport / freight as typed. `gstTypeManual` is null while the GST type simply follows the PO
@@ -48,6 +49,11 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
   // adding / correcting the transport on a GRN that is already recorded
   const [editGrnId, setEditGrnId] = useState(null);
   const po = pos.find((p) => p.id === poId);
+  // narrows the PO dropdown; the PO already chosen always stays in it
+  const [poQuery, setPoQuery] = useState("");
+  const poOptions = pos.filter((p) => p.id === poId || matchesQuery(poQuery, p.id, p.supplier, p.deliveryDate, ...p.lines.map((l) => l.itemName)));
+  const [grnQuery, setGrnQuery] = useState("");
+  const shownGrns = grns.filter((g) => matchesQuery(grnQuery, g.id, g.poId, g.billNo, g.billDate, g.receivedDate, g.recordedBy, g.transport && g.transport.transporter, g.transport && g.transport.lrNo, (pos.find((p) => p.id === g.poId) || {}).supplier, ...g.lines.map((l) => l.itemName)));
 
   const anyQty = po ? po.lines.some((l) => Number(qtys[l.lineId] || 0) > 0) : false;
   // GST type on the freight follows the PO supplier's state until picked by hand
@@ -71,11 +77,17 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Receiving Material Against Bill</div>
       <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Record goods received against a PO and its supplier bill. Transport charges can be entered with the receipt, or added to it later from the history below.</div>
       <div style={{ ...cardStyle, marginBottom: 14 }}>
+        {pos.length > 0 && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            <SearchBox value={poQuery} onChange={setPoQuery} placeholder="Find a PO by number, supplier or item…" />
+            {poQuery.trim() && <span style={{ fontSize: 12, color: "#9AA1AC" }}>{poOptions.filter((p) => p.id !== poId).length} matching PO(s) in the list below</span>}
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
           <Field label="PO">
             <select value={poId} onChange={(e) => { setPoId(e.target.value); setQtys({}); resetTransport(); }} style={inputStyle}>
               <option value="">— select a PO —</option>
-              {pos.map((p) => <option key={p.id} value={p.id}>{p.id} — {p.supplier}</option>)}
+              {poOptions.map((p) => <option key={p.id} value={p.id}>{p.id} — {p.supplier}</option>)}
             </select>
           </Field>
           <Field label="Bill / Invoice No."><input value={billNo} onChange={(e) => setBillNo(e.target.value)} style={inputStyle} /></Field>
@@ -118,8 +130,13 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
       </div>
       {grns.length > 0 && (
         <div style={{ ...cardStyle }}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>Goods Receipt History</div>
-          {grns.map((g) => (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700 }}>Goods Receipt History</div>
+            <SearchBox value={grnQuery} onChange={setGrnQuery} placeholder="Search GRN / PO / bill no., supplier, item, transporter…" />
+            <span style={{ fontSize: 12, color: "#9AA1AC" }}>{shownGrns.length} of {grns.length}</span>
+          </div>
+          {shownGrns.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: "#9AA1AC" }}>No receipts match "{grnQuery.trim()}".</div>}
+          {shownGrns.map((g) => (
             <div key={g.id} style={{ borderTop: "1px solid #F0EFEA", padding: "8px 0", fontSize: 12.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <div>

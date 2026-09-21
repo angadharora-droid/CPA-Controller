@@ -714,7 +714,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <RaisePRTab {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />
         )}
         {tab === "vpdesk" && (role === "VP" || seesAllTabs) && (
-          <VPDeskTab {...{ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
+          <VPDeskTab {...{ prs, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
         )}
         {tab === "president2nd" && (role === "President" || seesAllTabs) && (
           <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct, readOnly }} />

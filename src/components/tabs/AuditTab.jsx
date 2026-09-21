@@ -1,10 +1,21 @@
+import { useState } from "react";
+import { matchesQuery } from "../../utils/search.js";
+import { SearchBox } from "../ui.jsx";
+
 /* ================= AUDIT TRAIL ================= */
 export default function AuditTab({ audit, cardStyle }) {
+  const [query, setQuery] = useState("");
+  const rows = audit.filter((a) => matchesQuery(query, a.ts, a.who, a.text));
   return (
     <div style={{ ...cardStyle }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>Audit Trail</div>
-      <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 14 }}>Non-editable history. Nothing here can be deleted.</div>
-      {audit.map((a, i) => (
+      <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 12 }}>Non-editable history. Nothing here can be deleted.</div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+        <SearchBox value={query} onChange={setQuery} placeholder="Search by PR / PO / GRN no., item, person, date or action…" />
+        <span style={{ fontSize: 12, color: "#9AA1AC" }}>{query.trim() ? `${rows.length} of ${audit.length}` : audit.length} entr{audit.length === 1 ? "y" : "ies"}</span>
+      </div>
+      {rows.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#9AA1AC", fontSize: 12.5 }}>{audit.length ? `No entries match "${query.trim()}".` : "No activity recorded yet."}</div>}
+      {rows.map((a, i) => (
         <div key={i} style={{ display: "flex", gap: 12, padding: "9px 0", borderTop: i ? "1px solid #F0EFEA" : "none", fontSize: 12.5 }}>
           <div style={{ width: 150, flexShrink: 0, color: "#9AA1AC" }}>{a.ts}</div>
           <div style={{ width: 190, flexShrink: 0, fontWeight: 700 }}>{a.who}</div>
