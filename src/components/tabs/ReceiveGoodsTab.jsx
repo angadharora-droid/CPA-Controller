@@ -36,7 +36,7 @@ function transportFromSaved(saved, supplierCode) {
 const supplierCodeOf = (po) => (po ? stateCodeOf(po.supplierGstin, po.supplierState) : "");
 
 /* ================= RECEIVE MATERIAL AGAINST BILL (GRN) ================= */
-export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, grns, cardStyle }) {
+export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, grns, cardStyle, readOnly }) {
   const [poId, setPoId] = useState("");
   const [billNo, setBillNo] = useState("");
   const [billDate, setBillDate] = useState("");
@@ -53,7 +53,7 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
   // GST type on the freight follows the PO supplier's state until picked by hand
   const supplierCode = supplierCodeOf(po);
   const transportOk = !hasTransport || transportTotals(transport, supplierCode).amount > 0;
-  const canSubmit = po && billNo && anyQty && transportOk;
+  const canSubmit = !readOnly && po && billNo && anyQty && transportOk;
 
   function resetTransport() {
     setHasTransport(false); setTransport(BLANK_TRANSPORT);
@@ -128,7 +128,7 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
                   {g.transport && <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2 }}>{transportSummary(g.transport)}</div>}
                   {g.transportEditedAt && <div style={{ fontSize: 11, color: "#9AA1AC", marginTop: 2 }}>Transport {g.transport ? "updated" : "removed"} by {g.transportEditedBy} · {g.transportEditedAt}</div>}
                 </div>
-                {editGrnId !== g.id && (
+                {!readOnly && editGrnId !== g.id && (
                   <button onClick={() => setEditGrnId(g.id)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>{g.transport ? "Edit transport" : "Add transport"}</button>
                 )}
               </div>

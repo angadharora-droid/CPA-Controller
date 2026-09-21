@@ -67,6 +67,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
   /* Admin is a flag on the account, not a role: the user keeps their workflow role (so the audit trail
      and PO signatures record it) while every tab and every action stays open to them. */
   const isAdmin = !!currentUser.isAdmin;
+  /* A view-only login opens every tab like an admin, but every action is hidden or disabled, nothing
+     is saved back, and the server refuses its writes. */
+  const readOnly = role === "Viewer";
+  const seesAllTabs = isAdmin || readOnly;
   const whoLabel = `${currentUser.name} (${role})`;
   const [tolerancePct, setTolerancePct] = useState(5);            // good-to-approve lane threshold
   const [secondApprovalPct, setSecondApprovalPct] = useState(15); // President's 2nd-approval threshold
@@ -116,17 +120,18 @@ export default function BudgetApp({ currentUser, onLogout }) {
     return () => { alive = false; };
   }, []);
 
-  useAutosave("items", items, loaded);
-  useAutosave("prs", prs, loaded);
-  useAutosave("prCounter", prCounter, loaded);
-  useAutosave("pos", pos, loaded);
-  useAutosave("poCounter", poCounter, loaded);
-  useAutosave("grns", grns, loaded);
-  useAutosave("audit", audit, loaded);
-  useAutosave("headFreeze", headFreeze, loaded);
-  useAutosave("ceilOverrides", ceilOverrides, loaded);
-  useAutosave("tolerancePct", tolerancePct, loaded);
-  useAutosave("secondApprovalPct", secondApprovalPct, loaded);
+  const canSave = loaded && !readOnly;
+  useAutosave("items", items, canSave);
+  useAutosave("prs", prs, canSave);
+  useAutosave("prCounter", prCounter, canSave);
+  useAutosave("pos", pos, canSave);
+  useAutosave("poCounter", poCounter, canSave);
+  useAutosave("grns", grns, canSave);
+  useAutosave("audit", audit, canSave);
+  useAutosave("headFreeze", headFreeze, canSave);
+  useAutosave("ceilOverrides", ceilOverrides, canSave);
+  useAutosave("tolerancePct", tolerancePct, canSave);
+  useAutosave("secondApprovalPct", secondApprovalPct, canSave);
 
   const logAudit = useCallback((text, who) => {
     setAudit((a) => [{ ts: nowStamp(), who: who || whoLabel, text }, ...a]);
@@ -610,7 +615,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     { id: "audit", label: "Audit Trail", roles: ALL_ROLES },
     { id: "demo", label: "Demo Scenarios", roles: ALL_ROLES },
   ];
-  const visibleTabs = TABS.filter((t) => isAdmin || t.roles.includes(role));
+  const visibleTabs = TABS.filter((t) => seesAllTabs || t.roles.includes(role));
   React.useEffect(() => { if (!visibleTabs.find((t) => t.id === tab)) setTab("dashboard"); }, [role]);
 
   const cardStyle = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18 };
@@ -687,45 +692,50 @@ export default function BudgetApp({ currentUser, onLogout }) {
       </div>
 
       <div style={{ padding: 22, maxWidth: 1400, margin: "0 auto" }}>
+        {readOnly && (
+          <div style={{ background: "#FDF2E3", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.amber, fontWeight: 600 }}>
+            View-only access — every screen is open to you, but nothing can be added, edited, approved, signed or received from this login.
+          </div>
+        )}
         {tab === "dashboard" && (
           <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, allLines, grns, tolerancePct }}
-            pos={posForView} canOpenFreeze={role === "VP" || role === "President" || isAdmin} canOpenTab={(id) => visibleTabs.some((t) => t.id === id)} />
+            pos={posForView} canOpenFreeze={role === "VP" || role === "President" || seesAllTabs} canOpenTab={(id) => visibleTabs.some((t) => t.id === id)} />
         )}
-        {tab === "freeze" && (role === "VP" || role === "President" || isAdmin) && (
+        {tab === "freeze" && (role === "VP" || role === "President" || seesAllTabs) && (
           <>
             {(role === "VP" || isAdmin) && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
-            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin }} />
+            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin, readOnly }} />
           </>
         )}
         {tab === "itemstatus" && (
           <ItemStatusTab {...{ HEADS, items, cardStyle }} />
         )}
-        {tab === "raisepr" && (role === "Department Head" || isAdmin) && (
-          <RaisePRTab {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }} />
+        {tab === "raisepr" && (role === "Department Head" || seesAllTabs) && (
+          <RaisePRTab {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />
         )}
-        {tab === "vpdesk" && (role === "VP" || isAdmin) && (
-          <VPDeskTab {...{ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct }} />
+        {tab === "vpdesk" && (role === "VP" || seesAllTabs) && (
+          <VPDeskTab {...{ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
         )}
-        {tab === "president2nd" && (role === "President" || isAdmin) && (
-          <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct }} />
+        {tab === "president2nd" && (role === "President" || seesAllTabs) && (
+          <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct, readOnly }} />
         )}
-        {tab === "pmqueue" && (role === "Purchase Manager" || isAdmin) && (
-          <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle }} />
+        {tab === "pmqueue" && (role === "Purchase Manager" || seesAllTabs) && (
+          <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle, readOnly }} />
         )}
-        {tab === "issuepo" && (role === "Purchase Manager" || isAdmin) && (
-          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, cardStyle, role, isAdmin }} pos={posForView} />
+        {tab === "issuepo" && (role === "Purchase Manager" || seesAllTabs) && (
+          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, cardStyle, role, isAdmin, readOnly }} pos={posForView} />
         )}
-        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || isAdmin) && (
+        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || seesAllTabs) && (
           <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />
         )}
-        {tab === "receive" && (role === "Store Manager" || isAdmin) && (
-          <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle }} />
+        {tab === "receive" && (role === "Store Manager" || seesAllTabs) && (
+          <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle, readOnly }} />
         )}
         {tab === "audit" && (
           <AuditTab {...{ audit, cardStyle }} />
         )}
         {tab === "demo" && (
-          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, cardStyle }} />
+          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, readOnly, cardStyle }} />
         )}
       </div>
     </div>

@@ -5,7 +5,7 @@ import { Badge } from "../ui.jsx";
 const DEMO_HEADS = ["Crockery", "Cutlery", "Glassware", "Kitchen Utensils", "Kitchen Equipment", "Room Amenities (Non Consumable)"];
 
 /* ================= DEMO SCENARIOS ================= */
-export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, cardStyle }) {
+export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, readOnly, cardStyle }) {
   const [log, setLog] = useState([]);
   function findItem(name) { return items.find((i) => i.name === name && !i.deleted); }
   function push(label, result) { setLog((l) => [{ label, result }, ...l]); }
@@ -76,7 +76,7 @@ export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBu
         {role === "President" || isAdmin ? (
           <button style={btnStyle(C.navy)} onClick={() => { DEMO_HEADS.forEach((h) => freezeHead(h, "Fully Frozen")); }}>Freeze demo budget heads</button>
         ) : (
-          <span style={{ fontSize: 12.5, color: C.amber }}>Sign in as the President to freeze the demo budget heads.</span>
+          <span style={{ fontSize: 12.5, color: C.amber }}>{readOnly ? "Demo scenarios create requisitions, so they cannot be run from a view-only login." : "Sign in as the President to freeze the demo budget heads."}</span>
         )}
         {" "}
         <span style={{ fontSize: 11.5, color: "#9AA1AC" }}>{frozenCount} of {HEADS.length} heads currently frozen.</span>
@@ -87,7 +87,7 @@ export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBu
           <div key={s.title} style={{ ...cardStyle }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{s.title}</div>
             <div style={{ fontSize: 12, color: "#9AA1AC", margin: "6px 0 10px" }}>{s.desc}</div>
-            <button style={btnStyle(C.gold)} onClick={() => {
+            <button disabled={readOnly} style={{ ...btnStyle(C.gold), opacity: readOnly ? 0.5 : 1 }} onClick={() => {
               const pr = s.run();
               if (pr && s.walkthrough) s.walkthrough(pr);
               push(s.title, pr);

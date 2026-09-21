@@ -42,7 +42,7 @@ function formFromPO(po) {
 }
 
 /* ================= ISSUE PO (Purchase Manager) ================= */
-export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, cardStyle, role, isAdmin }) {
+export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, cardStyle, role, isAdmin, readOnly }) {
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
   const [form, setForm] = useState(BLANK_FORM);
@@ -74,7 +74,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
   }
 
   function startEdit(po) {
-    if (poIsLocked(po)) return;
+    if (readOnly || poIsLocked(po)) return;
     setEditId(po.id);
     setEditForm(formFromPO(po));
     setLastPOId(po.id);
@@ -105,7 +105,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
                 const desc = [l.proposedBrand, l.proposedModel].filter(Boolean).join(" - ");
                 return (
                   <tr key={key} style={{ borderTop: "1px solid #F0EFEA" }}>
-                    <td style={{ padding: "6px 10px" }}><input type="checkbox" checked={selected.has(key)} onChange={() => toggle(key)} /></td>
+                    <td style={{ padding: "6px 10px" }}><input type="checkbox" checked={selected.has(key)} disabled={readOnly} onChange={() => toggle(key)} /></td>
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{l.prId}</td>
                     <td style={{ padding: "6px 10px", fontWeight: 600 }}>{l.itemName}</td>
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{desc || "—"}</td>
@@ -154,7 +154,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             {poIsLocked(lastPO)
               ? <LockedNote />
-              : <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
+              : !readOnly && <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
           </div>
           <POView po={lastPO} signPO={signPO} role={role} isAdmin={isAdmin} />
         </>
@@ -171,7 +171,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
                 <button onClick={() => { setEditId(null); setLastPOId(po.id); }} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
                 {poIsLocked(po)
                   ? <LockedNote />
-                  : <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>}
+                  : !readOnly && <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>}
               </span>
             </div>
           ))}
