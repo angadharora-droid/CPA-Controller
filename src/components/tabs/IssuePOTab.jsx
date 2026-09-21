@@ -2,7 +2,8 @@ import { useState } from "react";
 import { C, th, thR, inputStyle, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
 import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked } from "../../utils/po.js";
-import { Field } from "../ui.jsx";
+import { matchesQuery } from "../../utils/search.js";
+import { Field, SearchBox } from "../ui.jsx";
 import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
 
@@ -46,6 +47,11 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
   const [form, setForm] = useState(BLANK_FORM);
+  // searching only narrows what is listed: lines already ticked stay selected for the PO
+  const [lineQuery, setLineQuery] = useState("");
+  const shownLines = readyLines.filter((l) => matchesQuery(lineQuery, l.prId, l.itemName, l.headName, l.proposedBrand, l.proposedModel, l.vendorDetails, l.raisedBy, l.dept));
+  const [poQuery, setPoQuery] = useState("");
+  const shownPOs = pos.filter((po) => matchesQuery(poQuery, po.id, po.supplier, po.deliveryDate, po.referenceNo, ...po.lines.map((l) => l.itemName)));
 
   const [lastPOId, setLastPOId] = useState(null);
   const lastPO = pos.find((p) => p.id === lastPOId) || null;
@@ -91,6 +97,12 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
       <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Select one or more Ready-for-PO lines (ideally from the same vendor) and bundle them into one PO.</div>
 
       <div style={{ ...cardStyle, padding: 0, overflow: "hidden", marginBottom: 14 }}>
+        {readyLines.length > 0 && (
+          <div style={{ padding: 12, borderBottom: `1px solid ${C.line}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <SearchBox value={lineQuery} onChange={setLineQuery} placeholder="Search PR no., item, brand, vendor…" />
+            <span style={{ fontSize: 12, color: "#9AA1AC" }}>{shownLines.length} of {readyLines.length} line(s){selected.size > 0 ? ` · ${selected.size} selected` : ""}</span>
+          </div>
+        )}
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
@@ -99,7 +111,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
               </tr>
             </thead>
             <tbody>
-              {readyLines.map((l) => {
+              {shownLines.map((l) => {
                 const key = `${l.prId}::${l.lineId}`;
                 const rate = l.pmRate || l.finalRate;
                 const desc = [l.proposedBrand, l.proposedModel].filter(Boolean).join(" - ");
@@ -116,7 +128,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
                   </tr>
                 );
               })}
-              {readyLines.length === 0 && <tr><td colSpan={8} style={{ padding: 20, textAlign: "center", color: "#9AA1AC" }}>Nothing Ready for PO yet.</td></tr>}
+              {shownLines.length === 0 && <tr><td colSpan={8} style={{ padding: 20, textAlign: "center", color: "#9AA1AC" }}>{readyLines.length ? `No Ready-for-PO lines match "${lineQuery.trim()}".` : "Nothing Ready for PO yet."}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -162,8 +174,13 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
 
       {pos.length > 0 && (
         <div style={{ ...cardStyle, marginTop: 14 }}>
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>All Issued POs</div>
-          {pos.map((po) => (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700 }}>All Issued POs</div>
+            <SearchBox value={poQuery} onChange={setPoQuery} placeholder="Search PO no., supplier, item, reference…" />
+            <span style={{ fontSize: 12, color: "#9AA1AC" }}>{shownPOs.length} of {pos.length}</span>
+          </div>
+          {shownPOs.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: "#9AA1AC" }}>No POs match "{poQuery.trim()}".</div>}
+          {shownPOs.map((po) => (
             <div key={po.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid #F0EFEA", fontSize: 12.5, gap: 10, flexWrap: "wrap" }}>
               <span>{po.id} — {po.supplier} — {po.lines.length} item(s){po.editedAt && <span style={{ color: "#9AA1AC" }}> · edited {po.editedAt}</span>}</span>
               <span style={{ display: "flex", gap: 10, alignItems: "center" }}>

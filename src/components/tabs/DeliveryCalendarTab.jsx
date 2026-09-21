@@ -1,22 +1,27 @@
 import { useState, useMemo } from "react";
 import { C, btnStyle } from "../../theme.js";
+import { matchesQuery } from "../../utils/search.js";
+import { SearchBox } from "../ui.jsx";
 import POView from "../POView.jsx";
 
 /* ================= DELIVERY CALENDAR ================= */
 export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role, isAdmin }) {
   const [viewPoId, setViewPoId] = useState(null);
   const viewPo = pos.find((p) => p.id === viewPoId) || null;
+  const [query, setQuery] = useState("");
   const grouped = useMemo(() => {
     const o = {};
-    pos.forEach((po) => { const d = po.deliveryDate || "No date set"; (o[d] = o[d] || []).push(po); });
+    pos.filter((po) => matchesQuery(query, po.id, po.supplier, po.deliveryDate, ...po.lines.map((l) => l.itemName))).forEach((po) => { const d = po.deliveryDate || "No date set"; (o[d] = o[d] || []).push(po); });
     return Object.entries(o).sort(([a], [b]) => (a > b ? 1 : -1));
-  }, [pos]);
+  }, [pos, query]);
 
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Delivery Calendar</div>
       <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Every issued PO, grouped by its expected delivery date. Coordinate with suppliers accordingly.</div>
+      {pos.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PO no., supplier, item or delivery date…" /></div>}
       {pos.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No POs issued yet.</div>}
+      {pos.length > 0 && grouped.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No POs match "{query.trim()}".</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }}>
         {grouped.map(([date, list]) => (
           <div key={date} style={{ ...cardStyle }}>

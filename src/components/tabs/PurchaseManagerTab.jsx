@@ -1,19 +1,24 @@
 import { useState } from "react";
 import { C, th, thR, cellInput, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
-import { Badge } from "../ui.jsx";
+import { matchesQuery } from "../../utils/search.js";
+import { Badge, SearchBox } from "../ui.jsx";
 
 /* ================= PURCHASE MANAGER ================= */
 export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardStyle, readOnly }) {
   const inQueue = (l) => l.status === "Pending Purchase Manager" || l.status === "Ready for PO";
+  const [query, setQuery] = useState("");
   const relevantPrs = prs.filter((pr) => pr.lines.some(inQueue));
+  const shown = (pr) => pr.lines.filter((l) => inQueue(l) && matchesQuery(query, pr.id, pr.raisedBy, pr.dept, l.itemName, l.headName, l.vendorDetails, l.status));
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
       <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up). Once a line is marked Ready for PO, use Edit to change its negotiated rate — until its PO is issued. Quantity and specs are locked at this stage.</div>
+      {relevantPrs.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PR no., item, head, vendor, status…" /></div>}
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
+      {relevantPrs.length > 0 && !relevantPrs.some((pr) => shown(pr).length) && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No lines match "{query.trim()}".</div>}
       {relevantPrs.map((pr) => {
-        const lines = pr.lines.filter(inQueue);
+        const lines = shown(pr);
         if (!lines.length) return null;
         return (
           <div key={pr.id} style={{ ...cardStyle, marginBottom: 14 }}>

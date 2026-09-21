@@ -39,6 +39,14 @@ export function Field({ label, children }) {
   return <div style={{ marginBottom: 10 }}><label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 3 }}>{label}</label>{children}</div>;
 }
 
+/* Free-text filter box shown above a list; pair it with matchesQuery() from utils/search.js. */
+export function SearchBox({ value, onChange, placeholder, style }) {
+  return (
+    <input type="search" placeholder={placeholder || "Search…"} value={value} onChange={(e) => onChange(e.target.value)}
+      style={{ flex: 1, minWidth: 180, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit", ...style }} />
+  );
+}
+
 export function PRResultPanel({ pr, cardStyle }) {
   const good = pr.lines.filter((l) => l.lane === "good").length;
   const exception = pr.lines.filter((l) => l.lane === "exception").length;

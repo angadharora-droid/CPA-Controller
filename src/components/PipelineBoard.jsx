@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { C } from "../theme.js";
 import { fmtINR, fmtNum } from "../utils/format.js";
 import { fmtDateShort } from "../utils/po.js";
-import { Badge } from "./ui.jsx";
+import { matchesQuery } from "../utils/search.js";
+import { Badge, SearchBox } from "./ui.jsx";
 
 /* ================= PURCHASE PIPELINE (Approve PR → Issue PO → Follow on Delivery → Received & Closed) ================= */
 
@@ -149,11 +150,15 @@ function POCard({ po, closedOn, onOpen }) {
 }
 
 export default function PipelineBoard({ allLines, pos, grns, openTab, canOpenTab, tolerancePct }) {
+  const [query, setQuery] = useState("");
   const data = useMemo(() => {
-    const approve = groupByPR(allLines.filter((l) => APPROVE_STATUSES.has(l.status)));
-    const issue = groupByPR(allLines.filter((l) => ISSUE_STATUSES.has(l.status)));
-    const delivery = pos.filter((po) => !isFullyReceived(po));
-    const closed = pos.filter(isFullyReceived).map((po) => {
+    // a search narrows the cards (and the stage counts / values above them); the footer tallies stay overall
+    const prMatches = (pr) => matchesQuery(query, pr.prId, pr.raisedBy, pr.dept, ...pr.lines.flatMap((l) => [l.itemName, l.headName, l.vendorDetails]));
+    const poMatches = (po) => matchesQuery(query, po.id, po.supplier, ...(po.lines || []).map((l) => l.itemName));
+    const approve = groupByPR(allLines.filter((l) => APPROVE_STATUSES.has(l.status))).filter(prMatches);
+    const issue = groupByPR(allLines.filter((l) => ISSUE_STATUSES.has(l.status))).filter(prMatches);
+    const delivery = pos.filter((po) => !isFullyReceived(po) && poMatches(po));
+    const closed = pos.filter((po) => isFullyReceived(po) && poMatches(po)).map((po) => {
       const g = grns.find((x) => x.poId === po.id); // grns are newest-first
       return { po, closedOn: g ? fmtDateShort(g.receivedDate) || g.ts : "" };
     });
@@ -171,7 +176,7 @@ export default function PipelineBoard({ allLines, pos, grns, openTab, canOpenTab
       },
       counts: { approve: approve.length, issue: issue.length, delivery: delivery.length, closed: closed.length },
     };
-  }, [allLines, pos, grns, tolerancePct]);
+  }, [allLines, pos, grns, tolerancePct, query]);
 
   // Where a click on a card should take the signed-in user, if they have that screen.
   function prTarget(pr, stageId) {
@@ -186,10 +191,14 @@ export default function PipelineBoard({ allLines, pos, grns, openTab, canOpenTab
     return id ? () => openTab(id) : null;
   }
 
-  const empty = (text) => <div style={{ border: `1px dashed ${C.line}`, borderRadius: 10, padding: 18, textAlign: "center", ...muted }}>{text}</div>;
+  const searching = !!query.trim();
+  const empty = (text) => <div style={{ border: `1px dashed ${C.line}`, borderRadius: 10, padding: 18, textAlign: "center", ...muted }}>{searching ? "No matches in this stage" : text}</div>;
 
   return (
     <div>
+      <div style={{ display: "flex", marginBottom: 10 }}>
+        <SearchBox value={query} onChange={setQuery} placeholder="Search the pipeline — PR / PO no., item, supplier, requester, department…" />
+      </div>
       <div style={{ overflowX: "auto", paddingBottom: 4 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(240px, 1fr))", gap: 0, minWidth: 980 }}>
           {STAGES.map((st, i) => (

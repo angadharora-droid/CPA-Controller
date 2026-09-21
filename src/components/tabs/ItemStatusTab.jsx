@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { C, th, thR, toggleBtn, toggleActive } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
+import { matchesQuery } from "../../utils/search.js";
 import { Badge } from "../ui.jsx";
 
 /* ================= APPROVED & PENDING ITEMS (Department Head view) ================= */
@@ -14,10 +15,7 @@ export default function ItemStatusTab({ HEADS, items, cardStyle }) {
     if (view === "approved") l = l.filter((it) => it.freezeState !== "Not Frozen" && it.approvalStatus === "Approved" && it.status === "Complete");
     else l = l.filter((it) => it.freezeState === "Not Frozen" || it.approvalStatus !== "Approved" || it.status !== "Complete");
     if (headFilter !== "All") l = l.filter((it) => it.head === headFilter);
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      l = l.filter((it) => it.name.toLowerCase().includes(q));
-    }
+    if (query.trim()) l = l.filter((it) => matchesQuery(query, it.name, it.head, it.sub, it.brand, it.spec));
     return l;
   }, [items, headFilter, query, view]);
 
@@ -33,7 +31,7 @@ export default function ItemStatusTab({ HEADS, items, cardStyle }) {
             <option>All</option>
             {HEADS.map((h) => <option key={h.name}>{h.name}</option>)}
           </select>
-          <input placeholder="Search items…" value={query} onChange={(e) => setQuery(e.target.value)}
+          <input placeholder="Search item, head, brand or specs…" value={query} onChange={(e) => setQuery(e.target.value)}
             style={{ flex: 1, minWidth: 160, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13 }} />
           <span style={{ alignSelf: "center", fontSize: 12, color: "#9AA1AC" }}>{list.length} item(s)</span>
         </div>
