@@ -5,8 +5,38 @@ import { computeTransport, fmtMoney, stateCodeOf, gstTypeForState } from "../../
 import { Field } from "../ui.jsx";
 import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
 
+/* Transport / freight as typed. `gstTypeManual` is null while the GST type simply follows the PO
+   supplier's state code. */
+const BLANK_TRANSPORT = { transporter: "", lrNo: "", amount: "", gstPct: "5", gstTypeManual: null };
+
+function transportGstType(t, supplierCode) {
+  return t.gstTypeManual || gstTypeForState(supplierCode);
+}
+
+function transportTotals(t, supplierCode) {
+  return computeTransport({ amount: t.amount, gstPct: t.gstPct, gstType: transportGstType(t, supplierCode) });
+}
+
+/* The transport object stored on a GRN. */
+function transportToSave(t, supplierCode) {
+  const c = transportTotals(t, supplierCode);
+  return { transporter: t.transporter.trim(), lrNo: t.lrNo.trim(), amount: c.amount, gstPct: c.gstPct, gstType: c.gstType };
+}
+
+function transportFromSaved(saved, supplierCode) {
+  if (!saved) return BLANK_TRANSPORT;
+  const type = saved.gstType === "IGST" ? "IGST" : "CGST_SGST";
+  return {
+    transporter: saved.transporter || "", lrNo: saved.lrNo || "",
+    amount: String(Number(saved.amount) || ""), gstPct: String(Number(saved.gstPct) || 0),
+    gstTypeManual: type === gstTypeForState(supplierCode) ? null : type,
+  };
+}
+
+const supplierCodeOf = (po) => (po ? stateCodeOf(po.supplierGstin, po.supplierState) : "");
+
 /* ================= RECEIVE MATERIAL AGAINST BILL (GRN) ================= */
-export default function ReceiveGoodsTab({ pos, recordGRN, grns, cardStyle }) {
+export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, grns, cardStyle }) {
   const [poId, setPoId] = useState("");
   const [billNo, setBillNo] = useState("");
   const [billDate, setBillDate] = useState("");
@@ -14,31 +44,24 @@ export default function ReceiveGoodsTab({ pos, recordGRN, grns, cardStyle }) {
   const [qtys, setQtys] = useState({});
   // transport / freight charged on this receipt
   const [hasTransport, setHasTransport] = useState(false);
-  const [transporter, setTransporter] = useState("");
-  const [lrNo, setLrNo] = useState("");
-  const [freight, setFreight] = useState("");
-  const [freightGstPct, setFreightGstPct] = useState("5");
-  const [freightGstManual, setFreightGstManual] = useState(null);
+  const [transport, setTransport] = useState(BLANK_TRANSPORT);
+  // adding / correcting the transport on a GRN that is already recorded
+  const [editGrnId, setEditGrnId] = useState(null);
   const po = pos.find((p) => p.id === poId);
 
   const anyQty = po ? po.lines.some((l) => Number(qtys[l.lineId] || 0) > 0) : false;
   // GST type on the freight follows the PO supplier's state until picked by hand
-  const supplierCode = po ? stateCodeOf(po.supplierGstin, po.supplierState) : "";
-  const freightGstType = freightGstManual || gstTypeForState(supplierCode);
-  const tr = computeTransport({ amount: freight, gstPct: freightGstPct, gstType: freightGstType });
-  const transportOk = !hasTransport || tr.amount > 0;
+  const supplierCode = supplierCodeOf(po);
+  const transportOk = !hasTransport || transportTotals(transport, supplierCode).amount > 0;
   const canSubmit = po && billNo && anyQty && transportOk;
 
   function resetTransport() {
-    setHasTransport(false); setTransporter(""); setLrNo(""); setFreight(""); setFreightGstPct("5"); setFreightGstManual(null);
+    setHasTransport(false); setTransport(BLANK_TRANSPORT);
   }
 
   function handleSubmit() {
     const lines = po.lines.map((l) => ({ lineId: l.lineId, itemName: l.itemName, qtyReceived: Number(qtys[l.lineId] || 0) })).filter((l) => l.qtyReceived > 0);
-    const transport = hasTransport
-      ? { transporter: transporter.trim(), lrNo: lrNo.trim(), amount: tr.amount, gstPct: tr.gstPct, gstType: tr.gstType }
-      : null;
-    recordGRN({ poId, billNo, billDate, receivedDate, lines, transport });
+    recordGRN({ poId, billNo, billDate, receivedDate, lines, transport: hasTransport ? transportToSave(transport, supplierCode) : null });
     setPoId(""); setBillNo(""); setBillDate(""); setReceivedDate(""); setQtys({});
     resetTransport();
   }
@@ -46,7 +69,7 @@ export default function ReceiveGoodsTab({ pos, recordGRN, grns, cardStyle }) {
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Receiving Material Against Bill</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Record goods received against a PO and its supplier bill.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Record goods received against a PO and its supplier bill. Transport charges can be entered with the receipt, or added to it later from the history below.</div>
       <div style={{ ...cardStyle, marginBottom: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
           <Field label="PO">
@@ -88,20 +111,7 @@ export default function ReceiveGoodsTab({ pos, recordGRN, grns, cardStyle }) {
               <input type="checkbox" checked={hasTransport} onChange={(e) => setHasTransport(e.target.checked)} />
               Transport / freight charged on this receipt
             </label>
-            {hasTransport && (
-              <div style={{ marginTop: 10 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
-                  <Field label="Transporter"><input value={transporter} onChange={(e) => setTransporter(e.target.value)} style={inputStyle} placeholder="Transport company / on supplier bill" /></Field>
-                  <Field label="LR / Vehicle No."><input value={lrNo} onChange={(e) => setLrNo(e.target.value)} style={inputStyle} /></Field>
-                  <Field label="Transport amount (₹, before GST) *"><input type="number" min="0" step="0.01" value={freight} onChange={(e) => setFreight(e.target.value)} style={inputStyle} /></Field>
-                  <GstRateField label="GST rate on transport" value={freightGstPct} onChange={setFreightGstPct} />
-                  <GstTypeField label="GST type on transport" value={freightGstType} manual={!!freightGstManual} onPick={setFreightGstManual} onAuto={() => setFreightGstManual(null)} stateCode={supplierCode} />
-                </div>
-                <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", maxWidth: 380, fontSize: 12.5, background: "#FAFAF8" }}>
-                  <TransportBreakdown t={tr} />
-                </div>
-              </div>
-            )}
+            {hasTransport && <div style={{ marginTop: 10 }}><TransportFields value={transport} onChange={setTransport} supplierCode={supplierCode} /></div>}
           </div>
         )}
         <button onClick={handleSubmit} disabled={!canSubmit} style={{ ...btnStyle(C.navy), marginTop: 12, opacity: canSubmit ? 1 : 0.5 }}>Record Goods Receipt</button>
@@ -111,13 +121,62 @@ export default function ReceiveGoodsTab({ pos, recordGRN, grns, cardStyle }) {
           <div style={{ fontWeight: 700, marginBottom: 10 }}>Goods Receipt History</div>
           {grns.map((g) => (
             <div key={g.id} style={{ borderTop: "1px solid #F0EFEA", padding: "8px 0", fontSize: 12.5 }}>
-              <b>{g.id}</b> — against {g.poId}, Bill {g.billNo} dated {g.billDate || "—"}, received {g.receivedDate || "—"} ({g.lines.length} line item(s))
-              <div style={{ fontSize: 11.5, color: "#9AA1AC", marginTop: 2 }}>{g.lines.map((l) => `${l.itemName || l.lineId}: ${fmtNum(l.qtyReceived)}`).join(" · ")} · recorded by {g.recordedBy}</div>
-              {g.transport && <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2 }}>{transportSummary(g.transport)}</div>}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div>
+                  <b>{g.id}</b> — against {g.poId}, Bill {g.billNo} dated {g.billDate || "—"}, received {g.receivedDate || "—"} ({g.lines.length} line item(s))
+                  <div style={{ fontSize: 11.5, color: "#9AA1AC", marginTop: 2 }}>{g.lines.map((l) => `${l.itemName || l.lineId}: ${fmtNum(l.qtyReceived)}`).join(" · ")} · recorded by {g.recordedBy}</div>
+                  {g.transport && <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2 }}>{transportSummary(g.transport)}</div>}
+                  {g.transportEditedAt && <div style={{ fontSize: 11, color: "#9AA1AC", marginTop: 2 }}>Transport {g.transport ? "updated" : "removed"} by {g.transportEditedBy} · {g.transportEditedAt}</div>}
+                </div>
+                {editGrnId !== g.id && (
+                  <button onClick={() => setEditGrnId(g.id)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>{g.transport ? "Edit transport" : "Add transport"}</button>
+                )}
+              </div>
+              {editGrnId === g.id && (
+                <GRNTransportEditor grn={g} supplierCode={supplierCodeOf(pos.find((p) => p.id === g.poId))}
+                  onSave={(t) => { updateGRNTransport(g.id, t); setEditGrnId(null); }} onCancel={() => setEditGrnId(null)} />
+              )}
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* Transporter, LR no., amount, GST rate and GST type with a live breakdown — shared by the receipt
+   form and the editor for a GRN that is already recorded. */
+function TransportFields({ value, onChange, supplierCode }) {
+  const set = (key) => (v) => onChange((t) => ({ ...t, [key]: v }));
+  const gstType = transportGstType(value, supplierCode);
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
+        <Field label="Transporter"><input value={value.transporter} onChange={(e) => set("transporter")(e.target.value)} style={inputStyle} placeholder="Transport company / on supplier bill" /></Field>
+        <Field label="LR / Vehicle No."><input value={value.lrNo} onChange={(e) => set("lrNo")(e.target.value)} style={inputStyle} /></Field>
+        <Field label="Transport amount (₹, before GST) *"><input type="number" min="0" step="0.01" value={value.amount} onChange={(e) => set("amount")(e.target.value)} style={inputStyle} /></Field>
+        <GstRateField label="GST rate on transport" value={value.gstPct} onChange={set("gstPct")} />
+        <GstTypeField label="GST type on transport" value={gstType} manual={!!value.gstTypeManual} onPick={set("gstTypeManual")} onAuto={() => set("gstTypeManual")(null)} stateCode={supplierCode} />
+      </div>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", maxWidth: 380, fontSize: 12.5, background: "#FAFAF8" }}>
+        <TransportBreakdown t={transportTotals(value, supplierCode)} />
+      </div>
+    </>
+  );
+}
+
+function GRNTransportEditor({ grn, supplierCode, onSave, onCancel }) {
+  const [transport, setTransport] = useState(() => transportFromSaved(grn.transport, supplierCode));
+  const canSave = transportTotals(transport, supplierCode).amount > 0;
+  return (
+    <div style={{ marginTop: 10, padding: 12, border: `1px solid ${C.gold}`, borderRadius: 8 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>{grn.transport ? "Edit" : "Add"} transport — {grn.id}</div>
+      <TransportFields value={transport} onChange={setTransport} supplierCode={supplierCode} />
+      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        <button onClick={() => onSave(transportToSave(transport, supplierCode))} disabled={!canSave} style={{ ...btnStyle(C.navy), opacity: canSave ? 1 : 0.5 }}>Save transport</button>
+        {grn.transport && <button onClick={() => onSave(null)} style={{ ...btnStyle(C.red) }}>Remove transport</button>}
+        <button onClick={onCancel} style={{ ...btnStyle(C.grey) }}>Cancel</button>
+      </div>
     </div>
   );
 }

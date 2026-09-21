@@ -111,6 +111,11 @@ export function computePOTotals(po) {
   return { subtotal, discountPct, discount, taxable, gstPct, gstType, cgst, sgst, igst, gross, total, roundOff, qtyTotal };
 }
 
+/* A PO is locked against any edit, by anyone, once goods have been received against it. */
+export function poIsLocked(po) {
+  return (po?.lines || []).some((l) => Number(l.qtyReceived) > 0);
+}
+
 /* ---------- amount in words (Indian numbering: thousand, lakh, crore) ---------- */
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
 const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
