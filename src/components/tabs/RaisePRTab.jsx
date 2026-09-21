@@ -162,8 +162,7 @@ function SingleOrderForm({ item, pendingQty, submitBundledPR, cardStyle, current
   const [result, setResult] = useState(null);
 
   const remainingQty = (item.qty || 0) - (item.committedQty || 0) - pendingQty;
-  // once submitted, this request is itself part of "awaiting approval", so the warning no longer applies
-  const overBy = result ? 0 : Number(qty) - Math.max(0, remainingQty);
+  const overBy = Number(qty) - Math.max(0, remainingQty);
 
   function handleSubmit() {
     const pr = submitBundledPR({
@@ -171,6 +170,8 @@ function SingleOrderForm({ item, pendingQty, submitBundledPR, cardStyle, current
       raisedBy: requestedBy, dept, urgency, requiredBy,
     });
     setResult(pr);
+    // like the bulk order: clear the quantity so a second click cannot raise the same requisition again
+    setQty("");
   }
 
   return (
@@ -334,6 +335,8 @@ function UnlistedOrderPanel({ HEADS, submitBundledPR, cardStyle, currentUser, re
       raisedBy: requestedBy, dept, urgency, requiredBy,
     });
     setResult(pr);
+    // clear the item so a second click cannot raise the same requisition again
+    setUnbudgetedName(""); setQty(""); setRate("");
   }
   const disabled = readOnly || !unbudgetedName || !unbudgetedHead || !qty || !rate;
 
