@@ -10,7 +10,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up), even after a line is marked Ready for PO — until its PO is issued. Quantity and specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up). Once a line is marked Ready for PO, use Edit to change its negotiated rate — until its PO is issued. Quantity and specs are locked at this stage.</div>
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.map((pr) => {
         const lines = pr.lines.filter(inQueue);
@@ -41,7 +41,9 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
 
 function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
   const current = ln.pmRate || ln.finalRate;
+  const ready = ln.status === "Ready for PO";
   const [rate, setRate] = useState(current);
+  const [editing, setEditing] = useState(false);
   function commit() {
     const n = Number(rate);
     if (n === Number(current)) return;
@@ -49,17 +51,31 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
     // pmSetRate refuses these, so show the rate that is still in force
     if (isNaN(n) || n <= 0 || n > ln.finalRate) setRate(current);
   }
+  function save() { commit(); setEditing(false); }
+  function cancel() { setRate(current); setEditing(false); }
+  const smallBtn = { fontSize: 11, padding: "4px 10px" };
   return (
     <tr style={{ borderTop: "1px solid #F0EFEA" }}>
       <td style={{ padding: "6px 10px", fontWeight: 600 }}>{ln.itemName}<div style={{ fontSize: 10.5, color: "#9AA1AC", fontWeight: 400 }}>{ln.headName}{ln.vendorDetails ? ` · ${ln.vendorDetails}` : ""}</div></td>
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(ln.finalQty)}</td>
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(ln.finalRate)}</td>
       <td style={{ padding: "6px 6px", textAlign: "right" }}>
-        <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} onBlur={commit} style={{ ...cellInput, width: 80 }} />
+        {/* once Ready for PO the rate is locked until the PM presses Edit */}
+        {ready && !editing
+          ? <span style={{ padding: "0 4px", fontWeight: 600 }}>{fmtINR(current)}</span>
+          : <input type="number" value={rate} autoFocus={ready} onChange={(e) => setRate(e.target.value)} onBlur={ready ? undefined : commit}
+              onKeyDown={ready ? (e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); } : undefined}
+              style={{ ...cellInput, width: 80 }} />}
+        {ready && editing && <div style={{ fontSize: 10.5, color: "#9AA1AC", marginTop: 2 }}>max {fmtINR(ln.finalRate)}</div>}
       </td>
-      <td style={{ padding: "6px 10px" }}><Badge bg={ln.status === "Ready for PO" ? "#E9F6EF" : "#EAF0FB"} fg={ln.status === "Ready for PO" ? C.green : C.blue}>{ln.status}</Badge></td>
-      <td style={{ padding: "6px 10px" }}>
-        {ln.status !== "Ready for PO" && <button onClick={() => pmMarkReady(pr.id, ln.lineId)} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 10px" }}>Mark Ready for PO</button>}
+      <td style={{ padding: "6px 10px" }}><Badge bg={ready ? "#E9F6EF" : "#EAF0FB"} fg={ready ? C.green : C.blue}>{ln.status}</Badge></td>
+      <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>
+        {!ready && <button onClick={() => pmMarkReady(pr.id, ln.lineId)} style={{ ...btnStyle(C.navy), ...smallBtn }}>Mark Ready for PO</button>}
+        {ready && !editing && <button onClick={() => { setRate(current); setEditing(true); }} style={{ ...btnStyle(C.gold), ...smallBtn }}>Edit</button>}
+        {ready && editing && <>
+          <button onClick={save} style={{ ...btnStyle(C.navy), ...smallBtn, marginRight: 6 }}>Save</button>
+          <button onClick={cancel} style={{ ...btnStyle(C.grey), ...smallBtn }}>Cancel</button>
+        </>}
       </td>
     </tr>
   );
