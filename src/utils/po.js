@@ -56,6 +56,43 @@ export function fmtQty(n) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+/* ---------- GST helpers (shared by the PO and the GRN transport charge) ---------- */
+/* Standard slabs offered in the rate pickers; any other rate can still be typed in. */
+export const GST_SLABS = ["0", "5", "12", "18", "28", "40"];
+export const OUR_STATE_CODE = COMPANY.gstin.slice(0, 2);
+
+/* State code from a GSTIN (first two digits), else from "State Name, Code : 27". */
+export function stateCodeOf(gstin, stateText) {
+  const g = String(gstin || "").trim().match(/^\d{2}/);
+  if (g) return g[0];
+  const s = String(stateText || "").match(/(\d{2})\s*$/);
+  return s ? s[1] : "";
+}
+
+/* Another state's party bills IGST; same state (or unknown) bills CGST + SGST. */
+export function gstTypeForState(code) {
+  return code && code !== OUR_STATE_CODE ? "IGST" : "CGST_SGST";
+}
+
+function splitGst(taxable, gstPct, gstType) {
+  let cgst = 0, sgst = 0, igst = 0;
+  if (gstPct > 0) {
+    if (gstType === "IGST") igst = round2(taxable * gstPct / 100);
+    else { cgst = round2(taxable * gstPct / 200); sgst = cgst; }
+  }
+  return { cgst, sgst, igst };
+}
+
+/* Freight recorded on a GRN: amount, its GST split and the total. Absent transport gives zeros. */
+export function computeTransport(t) {
+  const amount = round2(Number(t?.amount) || 0);
+  const gstPct = Number(t?.gstPct) || 0;
+  const gstType = t?.gstType === "IGST" ? "IGST" : "CGST_SGST";
+  const { cgst, sgst, igst } = splitGst(amount, gstPct, gstType);
+  const gst = round2(cgst + sgst + igst);
+  return { amount, gstPct, gstType, cgst, sgst, igst, gst, total: round2(amount + gst) };
+}
+
 /* Subtotal, overall discount, GST split and rounding for a PO. Old POs without discount/GST fields
    simply produce zeros for those rows. */
 export function computePOTotals(po) {
@@ -66,11 +103,7 @@ export function computePOTotals(po) {
   const taxable = round2(subtotal - discount);
   const gstPct = Number(po.gstPct) || 0;
   const gstType = po.gstType === "IGST" ? "IGST" : "CGST_SGST";
-  let cgst = 0, sgst = 0, igst = 0;
-  if (gstPct > 0) {
-    if (gstType === "IGST") igst = round2(taxable * gstPct / 100);
-    else { cgst = round2(taxable * gstPct / 200); sgst = cgst; }
-  }
+  const { cgst, sgst, igst } = splitGst(taxable, gstPct, gstType);
   const gross = round2(taxable + cgst + sgst + igst);
   const total = Math.round(gross);
   const roundOff = round2(total - gross);

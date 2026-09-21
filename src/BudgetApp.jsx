@@ -3,7 +3,7 @@ import { BASE_HEADS } from "./data/heads.js";
 import { api } from "./api.js";
 import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
-import { todayISO } from "./utils/po.js";
+import { todayISO, computeTransport } from "./utils/po.js";
 import { C } from "./theme.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
@@ -20,6 +20,16 @@ import AuditTab from "./components/tabs/AuditTab.jsx";
 import DemoTab from "./components/tabs/DemoTab.jsx";
 
 const ALL_ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head"];
+
+/* PO header fields that can be corrected after issue, with the label used in the audit trail. */
+const PO_EDITABLE = {
+  supplier: "supplier name", supplierAddress: "supplier address", supplierGstin: "supplier GSTIN",
+  supplierState: "supplier state", supplierContact: "supplier contact",
+  invoiceTo: "Invoice To", consignee: "Consignee",
+  referenceNo: "reference no.", paymentTerms: "payment terms", otherReferences: "other references",
+  deliveryTerms: "terms of delivery", deliveryDate: "delivery date", dispatchThrough: "dispatched through",
+  destination: "destination", discountPct: "discount %", gstPct: "GST rate", gstType: "GST type",
+};
 
 
 /* Debounced write-back of one state slice to the API/MongoDB. */
@@ -488,6 +498,35 @@ export default function BudgetApp({ currentUser, onLogout }) {
     return po;
   }
 
+  /* Correct the header of an issued PO (supplier, voucher details, discount, GST). Line items are
+     left alone: they carry the approved quantities and rates. Any signatures were given on the old
+     content, so a real change clears them and the PO has to be signed again. */
+  function updatePO(poId, fields) {
+    const po = pos.find((p) => p.id === poId);
+    if (!po) return null;
+    const patch = {};
+    Object.keys(PO_EDITABLE).forEach((k) => {
+      if (fields[k] === undefined) return;
+      if (k === "discountPct" || k === "gstPct") patch[k] = Number(fields[k]) || 0;
+      else if (k === "gstType") patch[k] = fields[k] === "IGST" ? "IGST" : "CGST_SGST";
+      else patch[k] = String(fields[k]);
+    });
+    const current = (k) => (k === "discountPct" || k === "gstPct") ? Number(po[k]) || 0
+      : k === "gstType" ? (po[k] === "IGST" ? "IGST" : "CGST_SGST")
+      : String(po[k] ?? "");
+    const changed = Object.keys(patch).filter((k) => patch[k] !== current(k));
+    if (!changed.length) return po;
+    const signed = Object.values(po.signatures || {}).filter(Boolean).length;
+    const next = {
+      ...po, ...patch,
+      signatures: signed ? { vp: null, president: null, purchaseManager: null } : po.signatures,
+      editedBy: whoLabel, editedAt: nowStamp(),
+    };
+    setPos((prev) => prev.map((p) => p.id === poId ? next : p));
+    logAudit(`${poId} edited by ${whoLabel}: ${changed.map((k) => PO_EDITABLE[k]).join(", ")} changed.${signed ? ` ${signed} signature(s) cleared — PO must be re-signed.` : ""}`);
+    return next;
+  }
+
   function signPO(poId, roleKey) {
     setPos((prev) => prev.map((po) => po.id === poId ? {
       ...po, signatures: { ...po.signatures, [roleKey]: { by: currentUser.name, date: nowStamp() } },
@@ -495,9 +534,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`${poId} digitally signed by ${whoLabel}.`);
   }
 
-  function recordGRN({ poId, billNo, billDate, receivedDate, lines }) {
+  function recordGRN({ poId, billNo, billDate, receivedDate, lines, transport }) {
     const grnId = `GRN-CPA-${padNum(grns.length + 1, 4)}`;
-    const grn = { id: grnId, poId, billNo, billDate, receivedDate, lines, recordedBy: whoLabel, ts: nowStamp() };
+    const grn = { id: grnId, poId, billNo, billDate, receivedDate, lines, transport: transport || null, recordedBy: whoLabel, ts: nowStamp() };
     setGrns((prev) => [grn, ...prev]);
     setPos((prev) => prev.map((po) => po.id !== poId ? po : {
       ...po,
@@ -514,7 +553,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
         if (ref) updateLine(ref.prId, ref.lineId, { qtyReceived: (getLine(ref.prId, ref.lineId)?.qtyReceived || 0) + Number(l.qtyReceived || 0) });
       });
     }
-    logAudit(`${grnId} recorded against ${poId} (Bill No. ${billNo || "—"}, dated ${billDate || "—"}): ${lines.length} line item(s) received.`);
+    const tr = transport ? computeTransport(transport) : null;
+    const trNote = tr ? ` Transport ${fmtINR(tr.amount)}${tr.gstPct > 0 ? ` + ${tr.gstType === "IGST" ? "IGST" : "CGST/SGST"} @ ${tr.gstPct}% = ${fmtINR(tr.total)}` : ""}${transport.transporter ? ` (${transport.transporter})` : ""}.` : "";
+    logAudit(`${grnId} recorded against ${poId} (Bill No. ${billNo || "—"}, dated ${billDate || "—"}): ${lines.length} line item(s) received.${trNote}`);
     return grn;
   }
 
@@ -651,7 +692,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <PurchaseManagerTab {...{ prs, pmSetRate, pmMarkReady, cardStyle }} />
         )}
         {tab === "issuepo" && (role === "Purchase Manager" || isAdmin) && (
-          <IssuePOTab {...{ allLines, issuePO, signPO, cardStyle, role, isAdmin }} pos={posForView} />
+          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, cardStyle, role, isAdmin }} pos={posForView} />
         )}
         {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || isAdmin) && (
           <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />

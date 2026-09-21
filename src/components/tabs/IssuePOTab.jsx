@@ -1,44 +1,59 @@
 import { useState } from "react";
 import { C, th, thR, inputStyle, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
-import { COMPANY_BLOCK } from "../../utils/po.js";
+import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState } from "../../utils/po.js";
 import { Field } from "../ui.jsx";
+import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
 
-const GST_TYPES = [
-  { id: "CGST_SGST", label: "CGST + SGST (within Maharashtra)" },
-  { id: "IGST", label: "IGST (inter-state)" },
-];
+/* Everything on a PO other than its line items. `gstTypeManual` is null while the GST type
+   simply follows the supplier's state code. */
+const BLANK_FORM = {
+  // supplier (bill from)
+  supplier: "", supplierAddress: "", supplierGstin: "", supplierState: "Maharashtra, Code : 27", supplierContact: "",
+  // our side
+  invoiceTo: COMPANY_BLOCK, consignee: COMPANY_BLOCK,
+  // voucher details
+  referenceNo: "", paymentTerms: "100% ADVANCE", otherReferences: "",
+  deliveryTerms: "AFTER PAYMENT WITHIN 8-10 DAYS", dispatchThrough: "", destination: "Amravati", deliveryDate: "",
+  // money
+  discountPct: "0", gstPct: "18", gstTypeManual: null,
+};
+
+function formGstType(form) {
+  return form.gstTypeManual || gstTypeForState(stateCodeOf(form.supplierGstin, form.supplierState));
+}
+
+/* The fields sent to issuePO / updatePO. */
+function formToFields(form) {
+  const { gstTypeManual, ...rest } = form;
+  return { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form) };
+}
+
+function formFromPO(po) {
+  // what the PO actually holds, never the new-PO defaults (older POs lack some of these fields)
+  const form = {};
+  Object.keys(BLANK_FORM).forEach((k) => { form[k] = po[k] === undefined || po[k] === null ? "" : String(po[k]); });
+  form.discountPct = String(Number(po.discountPct) || 0);
+  form.gstPct = String(Number(po.gstPct) || 0);
+  const saved = po.gstType === "IGST" ? "IGST" : "CGST_SGST";
+  form.gstTypeManual = saved === formGstType({ ...form, gstTypeManual: null }) ? null : saved;
+  return form;
+}
 
 /* ================= ISSUE PO (Purchase Manager) ================= */
-export default function IssuePOTab({ allLines, issuePO, signPO, pos, cardStyle, role, isAdmin }) {
+export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, cardStyle, role, isAdmin }) {
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
-
-  // supplier (bill from)
-  const [supplier, setSupplier] = useState("");
-  const [supplierAddress, setSupplierAddress] = useState("");
-  const [supplierGstin, setSupplierGstin] = useState("");
-  const [supplierState, setSupplierState] = useState("Maharashtra, Code : 27");
-  const [supplierContact, setSupplierContact] = useState("");
-  // our side
-  const [invoiceTo, setInvoiceTo] = useState(COMPANY_BLOCK);
-  const [consignee, setConsignee] = useState(COMPANY_BLOCK);
-  // voucher details
-  const [referenceNo, setReferenceNo] = useState("");
-  const [paymentTerms, setPaymentTerms] = useState("100% ADVANCE");
-  const [otherReferences, setOtherReferences] = useState("");
-  const [deliveryTerms, setDeliveryTerms] = useState("AFTER PAYMENT WITHIN 8-10 DAYS");
-  const [dispatchThrough, setDispatchThrough] = useState("");
-  const [destination, setDestination] = useState("Amravati");
-  const [deliveryDate, setDeliveryDate] = useState("");
-  // money
-  const [discountPct, setDiscountPct] = useState("0");
-  const [gstPct, setGstPct] = useState("18");
-  const [gstType, setGstType] = useState("CGST_SGST");
+  const [form, setForm] = useState(BLANK_FORM);
 
   const [lastPOId, setLastPOId] = useState(null);
   const lastPO = pos.find((p) => p.id === lastPOId) || null;
+
+  // editing a PO that has already been issued
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState(BLANK_FORM);
+  const editPO = pos.find((p) => p.id === editId) || null;
 
   function toggle(lineKey) {
     setSelected((prev) => {
@@ -48,19 +63,24 @@ export default function IssuePOTab({ allLines, issuePO, signPO, pos, cardStyle, 
     });
   }
   const selectedLines = readyLines.filter((l) => selected.has(`${l.prId}::${l.lineId}`));
-  const canIssue = selectedLines.length > 0 && supplier.trim() && deliveryDate;
+  const canIssue = selectedLines.length > 0 && form.supplier.trim() && form.deliveryDate;
 
   function handleIssue() {
     const lineRefs = selectedLines.map((l) => ({ prId: l.prId, lineId: l.lineId }));
-    const po = issuePO({
-      lineRefs,
-      supplier: supplier.trim(), supplierAddress, supplierGstin, supplierState, supplierContact,
-      invoiceTo, consignee,
-      referenceNo, paymentTerms, otherReferences, deliveryTerms, deliveryDate, dispatchThrough, destination,
-      discountPct: Number(discountPct) || 0, gstPct: Number(gstPct) || 0, gstType,
-    });
+    const po = issuePO({ lineRefs, ...formToFields(form) });
     setLastPOId(po ? po.id : null);
     setSelected(new Set());
+  }
+
+  function startEdit(po) {
+    setEditId(po.id);
+    setEditForm(formFromPO(po));
+    setLastPOId(po.id);
+  }
+  const canSave = editPO && editForm.supplier.trim() && editForm.deliveryDate;
+  function handleSaveEdit() {
+    updatePO(editPO.id, formToFields(editForm));
+    setEditId(null);
   }
 
   return (
@@ -103,65 +123,124 @@ export default function IssuePOTab({ allLines, issuePO, signPO, pos, cardStyle, 
       {selectedLines.length > 0 && (
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>PO Details — {selectedLines.length} line item(s) selected</div>
-
-          <SectionTitle>Supplier (Bill from)</SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            <Field label="Supplier name *"><input value={supplier} onChange={(e) => setSupplier(e.target.value)} style={inputStyle} placeholder="e.g. S L CROCKERIES" /></Field>
-            <Field label="GSTIN/UIN"><input value={supplierGstin} onChange={(e) => setSupplierGstin(e.target.value)} style={inputStyle} placeholder="e.g. 27AATPV3967E1ZX" /></Field>
-            <Field label="State Name, Code"><input value={supplierState} onChange={(e) => setSupplierState(e.target.value)} style={inputStyle} /></Field>
-            <Field label="Contact"><input value={supplierContact} onChange={(e) => setSupplierContact(e.target.value)} style={inputStyle} placeholder="Phone / email" /></Field>
-          </div>
-          <Field label="Supplier address"><textarea value={supplierAddress} onChange={(e) => setSupplierAddress(e.target.value)} style={{ ...inputStyle, minHeight: 44 }} placeholder={"632, Deputy Signal, Railway Crossing,\nWardhaman Nagar, Nagpur"} /></Field>
-
-          <SectionTitle>Our details</SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Field label="Invoice To (first line prints bold)"><textarea value={invoiceTo} onChange={(e) => setInvoiceTo(e.target.value)} style={{ ...inputStyle, minHeight: 96 }} /></Field>
-            <Field label="Consignee (Ship to)"><textarea value={consignee} onChange={(e) => setConsignee(e.target.value)} style={{ ...inputStyle, minHeight: 96 }} /></Field>
-          </div>
-
-          <SectionTitle>Voucher details</SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            <Field label="Expected Date of Delivery (Due on) *"><input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} style={inputStyle} /></Field>
-            <Field label="Reference No. & Date"><input value={referenceNo} onChange={(e) => setReferenceNo(e.target.value)} style={inputStyle} placeholder="Quotation / reference" /></Field>
-            <Field label="Mode/Terms of Payment"><input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} style={inputStyle} placeholder="e.g. 30 DAYS CREDIT" /></Field>
-            <Field label="Other References"><input value={otherReferences} onChange={(e) => setOtherReferences(e.target.value)} style={inputStyle} /></Field>
-            <Field label="Dispatched through"><input value={dispatchThrough} onChange={(e) => setDispatchThrough(e.target.value)} style={inputStyle} /></Field>
-            <Field label="Destination"><input value={destination} onChange={(e) => setDestination(e.target.value)} style={inputStyle} /></Field>
-          </div>
-          <Field label="Terms of Delivery"><input value={deliveryTerms} onChange={(e) => setDeliveryTerms(e.target.value)} style={inputStyle} /></Field>
-
-          <SectionTitle>Discount &amp; tax</SectionTitle>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            <Field label="Discount % (on the whole order)"><input type="number" min="0" max="100" step="0.01" value={discountPct} onChange={(e) => setDiscountPct(e.target.value)} style={inputStyle} /></Field>
-            <Field label="GST %"><input type="number" min="0" max="100" step="0.01" value={gstPct} onChange={(e) => setGstPct(e.target.value)} style={inputStyle} /></Field>
-            <Field label="GST type">
-              <select value={gstType} onChange={(e) => setGstType(e.target.value)} style={inputStyle}>
-                {GST_TYPES.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
-              </select>
-            </Field>
-          </div>
-
+          <PODetailsFields form={form} setForm={setForm} lines={selectedLines.map((l) => ({ qty: l.finalQty, rate: l.pmRate || l.finalRate }))} />
           <button onClick={handleIssue} disabled={!canIssue} style={{ ...btnStyle(C.navy), opacity: canIssue ? 1 : 0.5 }}>Issue PO</button>
         </div>
       )}
 
-      {lastPO && <POView po={lastPO} signPO={signPO} role={role} isAdmin={isAdmin} />}
+      {editPO && (
+        <div style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
+          <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
+            Supplier, voucher details, discount and GST can be corrected here. Items, quantities and rates stay as approved on the requisition.
+          </div>
+          {signatureCount(editPO) > 0 && (
+            <div style={{ background: "#FDF2E3", color: C.amber, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+              This PO already has {signatureCount(editPO)} signature(s). Saving a change clears them, so the corrected PO must be signed again.
+            </div>
+          )}
+          <PODetailsFields form={editForm} setForm={setEditForm} lines={editPO.lines} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={handleSaveEdit} disabled={!canSave} style={{ ...btnStyle(C.navy), opacity: canSave ? 1 : 0.5 }}>Save changes</button>
+            <button onClick={() => setEditId(null)} style={{ ...btnStyle(C.grey) }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {lastPO && !editPO && (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>
+          </div>
+          <POView po={lastPO} signPO={signPO} role={role} isAdmin={isAdmin} />
+        </>
+      )}
 
       {pos.length > 0 && (
         <div style={{ ...cardStyle, marginTop: 14 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>All Issued POs</div>
           {pos.map((po) => (
             <div key={po.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid #F0EFEA", fontSize: 12.5, gap: 10, flexWrap: "wrap" }}>
-              <span>{po.id} — {po.supplier} — {po.lines.length} item(s)</span>
+              <span>{po.id} — {po.supplier} — {po.lines.length} item(s){po.editedAt && <span style={{ color: "#9AA1AC" }}> · edited {po.editedAt}</span>}</span>
               <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ color: "#9AA1AC" }}>Due {po.deliveryDate}</span>
-                <button onClick={() => setLastPOId(po.id)} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
+                <button onClick={() => { setEditId(null); setLastPOId(po.id); }} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
+                <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>
               </span>
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function signatureCount(po) {
+  return Object.values(po.signatures || {}).filter(Boolean).length;
+}
+
+/* Supplier, our details, voucher details, discount & tax, with a live total — shared by the
+   issue form and the edit form. `lines` only feeds the total preview. */
+function PODetailsFields({ form, setForm, lines }) {
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const setValue = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
+  const supplierCode = stateCodeOf(form.supplierGstin, form.supplierState);
+  const gstType = formGstType(form);
+  // same maths as the printed document
+  const preview = computePOTotals({ lines, discountPct: form.discountPct, gstPct: form.gstPct, gstType });
+  const halfPct = preview.gstPct / 2;
+
+  return (
+    <>
+      <SectionTitle>Supplier (Bill from)</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        <Field label="Supplier name *"><input value={form.supplier} onChange={set("supplier")} style={inputStyle} placeholder="e.g. S L CROCKERIES" /></Field>
+        <Field label="GSTIN/UIN"><input value={form.supplierGstin} onChange={set("supplierGstin")} style={inputStyle} placeholder="e.g. 27AATPV3967E1ZX" /></Field>
+        <Field label="State Name, Code"><input value={form.supplierState} onChange={set("supplierState")} style={inputStyle} /></Field>
+        <Field label="Contact"><input value={form.supplierContact} onChange={set("supplierContact")} style={inputStyle} placeholder="Phone / email" /></Field>
+      </div>
+      <Field label="Supplier address"><textarea value={form.supplierAddress} onChange={set("supplierAddress")} style={{ ...inputStyle, minHeight: 44 }} placeholder={"632, Deputy Signal, Railway Crossing,\nWardhaman Nagar, Nagpur"} /></Field>
+
+      <SectionTitle>Our details</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Invoice To (first line prints bold)"><textarea value={form.invoiceTo} onChange={set("invoiceTo")} style={{ ...inputStyle, minHeight: 96 }} /></Field>
+        <Field label="Consignee (Ship to)"><textarea value={form.consignee} onChange={set("consignee")} style={{ ...inputStyle, minHeight: 96 }} /></Field>
+      </div>
+
+      <SectionTitle>Voucher details</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        <Field label="Expected Date of Delivery (Due on) *"><input type="date" value={form.deliveryDate} onChange={set("deliveryDate")} style={inputStyle} /></Field>
+        <Field label="Reference No. & Date"><input value={form.referenceNo} onChange={set("referenceNo")} style={inputStyle} placeholder="Quotation / reference" /></Field>
+        <Field label="Mode/Terms of Payment"><input value={form.paymentTerms} onChange={set("paymentTerms")} style={inputStyle} placeholder="e.g. 30 DAYS CREDIT" /></Field>
+        <Field label="Other References"><input value={form.otherReferences} onChange={set("otherReferences")} style={inputStyle} /></Field>
+        <Field label="Dispatched through"><input value={form.dispatchThrough} onChange={set("dispatchThrough")} style={inputStyle} /></Field>
+        <Field label="Destination"><input value={form.destination} onChange={set("destination")} style={inputStyle} /></Field>
+      </div>
+      <Field label="Terms of Delivery"><input value={form.deliveryTerms} onChange={set("deliveryTerms")} style={inputStyle} /></Field>
+
+      <SectionTitle>Discount &amp; tax</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+        <Field label="Discount % (on the whole order)"><input type="number" min="0" max="100" step="0.01" value={form.discountPct} onChange={set("discountPct")} style={inputStyle} /></Field>
+        <GstRateField value={form.gstPct} onChange={setValue("gstPct")} />
+        <GstTypeField value={gstType} manual={!!form.gstTypeManual} onPick={setValue("gstTypeManual")} onAuto={() => setValue("gstTypeManual")(null)} stateCode={supplierCode} />
+      </div>
+
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, maxWidth: 380, fontSize: 12.5, background: "#FAFAF8" }}>
+        <TotalRow label="Subtotal" value={fmtMoney(preview.subtotal)} />
+        {preview.discount > 0 && <TotalRow label={`Less: Discount @ ${preview.discountPct}%`} value={fmtSigned(-preview.discount)} />}
+        {preview.gstPct > 0 && gstType === "IGST" && <TotalRow label={`IGST @ ${preview.gstPct}%`} value={fmtMoney(preview.igst)} />}
+        {preview.gstPct > 0 && gstType !== "IGST" && (
+          <>
+            <TotalRow label={`SGST @ ${halfPct}%`} value={fmtMoney(preview.sgst)} />
+            <TotalRow label={`CGST @ ${halfPct}%`} value={fmtMoney(preview.cgst)} />
+          </>
+        )}
+        {preview.roundOff !== 0 && <TotalRow label="Round off" value={fmtSigned(preview.roundOff)} />}
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 4 }}>
+          <TotalRow label="PO total" value={`₹ ${fmtMoney(preview.total)}`} bold />
+        </div>
+      </div>
+    </>
   );
 }
 
