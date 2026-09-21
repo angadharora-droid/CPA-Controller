@@ -7,12 +7,15 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dns from "node:dns";
 import mongoose from "mongoose";
 import { EJSON } from "bson";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/cpa-budget-control";
 
+// some office/ISP DNS servers refuse the SRV lookup an Atlas address needs; public resolvers answer it
+if (String(uri).startsWith("mongodb+srv://")) dns.setServers(["8.8.8.8", "1.1.1.1"]);
 await mongoose.connect(uri);
 const db = mongoose.connection.db;
 const states = db.collection("appstates");
