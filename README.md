@@ -23,8 +23,9 @@ On first run the server seeds MongoDB with the user accounts below and an empty 
 | `depthead`     | `Dept@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition       |
 | `purchase`     | `Purchase@2026`    | Purchase Manager   | Rate negotiation (down only), mark lines Ready for PO, Issue PO, Delivery Calendar |
 | `store`        | `Store@2026`       | Store Manager      | Delivery Calendar, Receive Material (GRN)                  |
+| `shashank`     | `Shashank@2026`    | Viewer (view-only) | Every screen, read-only — Shashank Kapley                  |
 
-Every role sees the Executive Dashboard, Audit Trail and Demo Scenarios. Change the passwords in MongoDB (`users` collection) before going live.
+Every role sees the Executive Dashboard, Audit Trail and Demo Scenarios. The Viewer role opens every tab but every action is hidden or disabled, nothing it does is saved, and the API rejects any write from it (403). Change the passwords in MongoDB (`users` collection) before going live.
 
 The former Purchase Executive role has been merged into Purchase Manager: on start-up the server removes the old `purchaseexec` login, moves any account still carrying that role to Purchase Manager, and the app moves any Purchase Executive signature on an existing PO into the Purchase Manager box.
 

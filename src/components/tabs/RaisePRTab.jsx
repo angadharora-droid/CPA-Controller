@@ -6,7 +6,7 @@ import { Field, PRResultPanel } from "../ui.jsx";
 const URGENCIES = ["Normal", "High — opening critical", "Low"];
 
 /* ================= RAISE PR (bundled, sequentially numbered) ================= */
-export default function RaisePRTab({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }) {
+export default function RaisePRTab({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const [mode, setMode] = useState("single");
   const MODES = [
     { id: "single", label: "Single Order" },
@@ -20,9 +20,9 @@ export default function RaisePRTab({ HEADS, approvedItemsForPR, submitBundledPR,
           <button key={m.id} onClick={() => setMode(m.id)} style={{ ...toggleBtn, ...(mode === m.id ? toggleActive : {}), padding: "9px 18px", fontSize: 13 }}>{m.label}</button>
         ))}
       </div>
-      {mode === "single" && <SingleOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }} />}
-      {mode === "bulk" && <BulkOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }} />}
-      {mode === "unlisted" && <UnlistedOrderPanel {...{ HEADS, submitBundledPR, cardStyle, currentUser }} />}
+      {mode === "single" && <SingleOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />}
+      {mode === "bulk" && <BulkOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />}
+      {mode === "unlisted" && <UnlistedOrderPanel {...{ HEADS, submitBundledPR, cardStyle, currentUser, readOnly }} />}
     </div>
   );
 }
@@ -88,7 +88,7 @@ function ItemPickerTable({ items, headFilter, setHeadFilter, HEADS, showHeadFilt
 }
 
 /* ---------- SINGLE ORDER ---------- */
-function SingleOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }) {
+function SingleOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const [headFilter, setHeadFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -123,12 +123,12 @@ function SingleOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyl
           </tr>
         )}
       />
-      {item && <SingleOrderForm key={item.id} item={item} submitBundledPR={submitBundledPR} cardStyle={cardStyle} currentUser={currentUser} onClose={() => setSelectedId(null)} />}
+      {item && <SingleOrderForm key={item.id} item={item} submitBundledPR={submitBundledPR} cardStyle={cardStyle} currentUser={currentUser} readOnly={readOnly} onClose={() => setSelectedId(null)} />}
     </div>
   );
 }
 
-function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, onClose }) {
+function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOnly, onClose }) {
   const [qty, setQty] = useState("");
   const [rate, setRate] = useState(item.rate);
   const [proposedBrand, setProposedBrand] = useState(item.brand || "");
@@ -173,7 +173,7 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, onClos
           <RequesterFields {...{ requestedBy, setRequestedBy, dept, setDept, urgency, setUrgency, requiredBy, setRequiredBy }} />
         </div>
         <Field label="Vendor / supplier (optional)"><input value={vendorDetails} onChange={(e) => setVendorDetails(e.target.value)} style={inputStyle} /></Field>
-        <button onClick={handleSubmit} disabled={!qty || !rate} style={{ ...btnStyle(C.navy), opacity: (!qty || !rate) ? 0.5 : 1 }}>Submit Purchase Requisition</button>
+        <button onClick={handleSubmit} disabled={readOnly || !qty || !rate} style={{ ...btnStyle(C.navy), opacity: (readOnly || !qty || !rate) ? 0.5 : 1 }}>Submit Purchase Requisition</button>
       </div>
       {result && <PRResultPanel pr={result} cardStyle={cardStyle} />}
     </div>
@@ -181,7 +181,7 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, onClos
 }
 
 /* ---------- BULK ORDER ---------- */
-function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser }) {
+function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const PAGE_SIZE = 10;
   const [headFilter, setHeadFilter] = useState(HEADS[0].name);
   const [query, setQuery] = useState("");
@@ -211,7 +211,7 @@ function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle,
   }
   const selectedIds = Object.keys(rows).filter((id) => rows[id]?.checked);
   const readyCount = selectedIds.filter((id) => rows[id].qty && rows[id].rate).length;
-  const allReady = selectedIds.length > 0 && readyCount === selectedIds.length;
+  const allReady = !readOnly && selectedIds.length > 0 && readyCount === selectedIds.length;
 
   function handleSubmitBulk() {
     const lines = selectedIds.map((id) => ({
@@ -283,7 +283,7 @@ function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle,
 }
 
 /* ---------- UNLISTED ITEM ---------- */
-function UnlistedOrderPanel({ HEADS, submitBundledPR, cardStyle, currentUser }) {
+function UnlistedOrderPanel({ HEADS, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const [unbudgetedName, setUnbudgetedName] = useState("");
   const [unbudgetedHead, setUnbudgetedHead] = useState("");
   const [qty, setQty] = useState("");
@@ -304,7 +304,7 @@ function UnlistedOrderPanel({ HEADS, submitBundledPR, cardStyle, currentUser }) 
     });
     setResult(pr);
   }
-  const disabled = !unbudgetedName || !unbudgetedHead || !qty || !rate;
+  const disabled = readOnly || !unbudgetedName || !unbudgetedHead || !qty || !rate;
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,0.8fr)", gap: 16 }}>

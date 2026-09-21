@@ -4,7 +4,7 @@ import { fmtINR, fmtNum } from "../../utils/format.js";
 import { Badge } from "../ui.jsx";
 
 /* ================= PURCHASE MANAGER ================= */
-export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardStyle }) {
+export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardStyle, readOnly }) {
   const inQueue = (l) => l.status === "Pending Purchase Manager" || l.status === "Ready for PO";
   const relevantPrs = prs.filter((pr) => pr.lines.some(inQueue));
   return (
@@ -27,7 +27,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
                 </thead>
                 <tbody>
                   {lines.map((ln) => (
-                    <PMLineRow key={ln.lineId} pr={pr} ln={ln} pmSetRate={pmSetRate} pmMarkReady={pmMarkReady} />
+                    <PMLineRow key={ln.lineId} pr={pr} ln={ln} pmSetRate={pmSetRate} pmMarkReady={pmMarkReady} readOnly={readOnly} />
                   ))}
                 </tbody>
               </table>
@@ -39,7 +39,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
   );
 }
 
-function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
+function PMLineRow({ pr, ln, pmSetRate, pmMarkReady, readOnly }) {
   const current = ln.pmRate || ln.finalRate;
   const ready = ln.status === "Ready for PO";
   const [rate, setRate] = useState(current);
@@ -60,8 +60,8 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(ln.finalQty)}</td>
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(ln.finalRate)}</td>
       <td style={{ padding: "6px 6px", textAlign: "right" }}>
-        {/* once Ready for PO the rate is locked until the PM presses Edit */}
-        {ready && !editing
+        {/* once Ready for PO the rate is locked until the PM presses Edit; a view-only login never gets the input */}
+        {readOnly || (ready && !editing)
           ? <span style={{ padding: "0 4px", fontWeight: 600 }}>{fmtINR(current)}</span>
           : <input type="number" value={rate} autoFocus={ready} onChange={(e) => setRate(e.target.value)} onBlur={ready ? undefined : commit}
               onKeyDown={ready ? (e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); } : undefined}
@@ -70,8 +70,8 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
       </td>
       <td style={{ padding: "6px 10px" }}><Badge bg={ready ? "#E9F6EF" : "#EAF0FB"} fg={ready ? C.green : C.blue}>{ln.status}</Badge></td>
       <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>
-        {!ready && <button onClick={() => pmMarkReady(pr.id, ln.lineId)} style={{ ...btnStyle(C.navy), ...smallBtn }}>Mark Ready for PO</button>}
-        {ready && !editing && <button onClick={() => { setRate(current); setEditing(true); }} style={{ ...btnStyle(C.gold), ...smallBtn }}>Edit</button>}
+        {!readOnly && !ready && <button onClick={() => pmMarkReady(pr.id, ln.lineId)} style={{ ...btnStyle(C.navy), ...smallBtn }}>Mark Ready for PO</button>}
+        {!readOnly && ready && !editing && <button onClick={() => { setRate(current); setEditing(true); }} style={{ ...btnStyle(C.gold), ...smallBtn }}>Edit</button>}
         {ready && editing && <>
           <button onClick={save} style={{ ...btnStyle(C.navy), ...smallBtn, marginRight: 6 }}>Save</button>
           <button onClick={cancel} style={{ ...btnStyle(C.grey), ...smallBtn }}>Cancel</button>

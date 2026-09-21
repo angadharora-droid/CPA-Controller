@@ -4,7 +4,7 @@ import { fmtINR, fmtNum } from "../../utils/format.js";
 import { Badge, ReconIndicator, MiniStat } from "../ui.jsx";
 
 /* ================= BUDGET REVIEW & FREEZE ================= */
-export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin }) {
+export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin, readOnly }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [showDeleted, setShowDeleted] = useState(false);
@@ -16,6 +16,8 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const frozen = (headFreeze[selectedHead] || "Not Frozen") !== "Not Frozen";
   const canFreeze = role === "President" || isAdmin;
+  // a view-only login sees every row exactly as it reads once frozen: plain values, no inputs
+  const locked = frozen || readOnly;
   const color = reconColor(selectedHead);
   const dupes = useMemo(() => {
     const counts = {};
@@ -86,12 +88,12 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
           <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", marginBottom: 8 }}>Admin Settings</div>
           <label style={{ fontSize: 12.5 }}>Good-to-Approve rate tolerance</label>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, marginBottom: 10 }}>
-            <input type="number" value={tolerancePct} onChange={(e) => setTolerancePct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+            <input type="number" value={tolerancePct} disabled={readOnly} onChange={(e) => setTolerancePct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
             <span style={{ fontSize: 13 }}>%</span>
           </div>
           <label style={{ fontSize: 12.5 }}>President's 2nd-approval threshold</label>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-            <input type="number" value={secondApprovalPct} onChange={(e) => setSecondApprovalPct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
+            <input type="number" value={secondApprovalPct} disabled={readOnly} onChange={(e) => setSecondApprovalPct(Number(e.target.value))} style={{ width: 60, padding: "5px 7px", border: `1px solid ${C.line}`, borderRadius: 6 }} />
             <span style={{ fontSize: 13 }}>%</span>
           </div>
         </div>
@@ -100,7 +102,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
       {/* main */}
       <div style={{ flex: 1, minWidth: 320 }}>
         <div style={{ background: "#EAF0FB", border: `1px solid #C7D6EF`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#2E5FA3" }}>
-          {isAdmin ? "You have full administrative access — edit items freely and freeze heads directly. Freezing a head locks it for departments to requisition against." : role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
+          {readOnly ? "View-only access — browse every budget head and its items. Nothing on this screen can be edited or frozen from this login." : isAdmin ? "You have full administrative access — edit items freely and freeze heads directly. Freezing a head locks it for departments to requisition against." : role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
         </div>
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
@@ -111,7 +113,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
             <ReconIndicator color={color} label={color === "green" ? "Item total ≤ ceiling" : color === "amber" ? "Item list incomplete" : color === "red" ? "Item total exceeds ceiling" : "Not yet frozen"} />
           </div>
           <div style={{ display: "flex", gap: 22, marginTop: 14, flexWrap: "wrap" }}>
-            {frozen ? (
+            {locked ? (
               <MiniStat label="Ceiling" value={fmtINR(head.ceil)} />
             ) : (
               <div>
@@ -141,7 +143,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                   <button onClick={() => freezeHead(selectedHead, "Not Approved")} style={btnStyle(C.red)}>Not Approved</button>
                 </>
               ) : (
-                <span style={{ fontSize: 12.5, color: "#6B7280" }}>Freezing is reserved for the President — hand off once the item list is complete.</span>
+                <span style={{ fontSize: 12.5, color: "#6B7280" }}>{readOnly ? "This budget head has not been frozen yet." : "Freezing is reserved for the President — hand off once the item list is complete."}</span>
               )}
               {(headIncomplete[selectedHead] > 0 || headItemTotal[selectedHead] > head.ceil || dupes.length > 0) && (
                 <span style={{ fontSize: 11.5, color: C.amber, marginLeft: 6 }}>⚠ Missing data, ceiling breach, or duplicates detected — review before freezing "Fully Frozen".</span>
@@ -156,7 +158,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
           )}
         </div>
 
-        {!frozen && selectedIds.length > 0 && (
+        {!locked && selectedIds.length > 0 && (
           <div style={{ ...cardStyle, marginBottom: 14, background: "#FFFBF0", border: `1px solid ${C.gold}` }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <Badge bg={C.gold} fg={C.navy}>{selectedIds.length} selected</Badge>
@@ -196,7 +198,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
               {deletedItemsForHead.map((it) => (
                 <div key={it.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "5px 0" }}>
                   <span style={{ color: "#9AA1AC", textDecoration: "line-through" }}>{it.name}</span>
-                  <button onClick={() => restoreItem(it.id)} style={{ ...pgBtn, padding: "3px 10px" }}>Restore</button>
+                  {!readOnly && <button onClick={() => restoreItem(it.id)} style={{ ...pgBtn, padding: "3px 10px" }}>Restore</button>}
                 </div>
               ))}
             </div>
@@ -205,7 +207,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead>
                 <tr style={{ textAlign: "left", color: "#6B7280", fontSize: 10.5, textTransform: "uppercase", background: "#FAFAF8" }}>
-                  {!frozen && <th style={th}><input type="checkbox" checked={pageItems.length > 0 && pageItems.every((it) => selected.has(it.id))} onChange={toggleSelectAllPage} /></th>}
+                  {!locked && <th style={th}><input type="checkbox" checked={pageItems.length > 0 && pageItems.every((it) => selected.has(it.id))} onChange={toggleSelectAllPage} /></th>}
                   <th style={th}>Item</th>
                   <th style={th}>Spec / Sub-category</th>
                   <th style={th}>Approved Brand</th>
@@ -219,7 +221,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
               </thead>
               <tbody>
                 {pageItems.map((it) => (
-                  <ItemRow key={it.id} it={it} updateItem={updateItem} setItemApproval={setItemApproval} updateItemBrand={updateItemBrand} frozen={frozen}
+                  <ItemRow key={it.id} it={it} updateItem={updateItem} setItemApproval={setItemApproval} updateItemBrand={updateItemBrand} frozen={locked}
                     selected={selected.has(it.id)} onToggleSelect={() => toggleSelect(it.id)}
                     renameItemName={renameItemName} deleteItems={deleteItems} />
                 ))}

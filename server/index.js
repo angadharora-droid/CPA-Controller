@@ -21,7 +21,9 @@ const TOKEN_TTL = "12h";
    An older "main" document is archived (never deleted) and a fresh one is seeded. */
 const SCHEMA_VERSION = 2;
 
-const ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head"];
+/* "Viewer" is not a workflow role: it opens every screen read-only and can never write app state. */
+const VIEWER_ROLE = "Viewer";
+const ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head", VIEWER_ROLE];
 
 /* ---------- models ---------- */
 const userSchema = new mongoose.Schema({
@@ -59,6 +61,7 @@ const SEED_USERS = [
   { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
   { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
   { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
+  { userId: "shashank", password: "Shashank@2026", name: "Shashank Kapley", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
 ];
 
 function freshState() {
@@ -190,6 +193,8 @@ app.get("/api/state", requireAuth, async (req, res) => {
 });
 
 app.put("/api/state/:slice", requireAuth, async (req, res) => {
+  // The client hides every action from a view-only login; this is the guarantee behind it.
+  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: "This login is view-only and cannot make changes." });
   const { slice } = req.params;
   if (!SLICES.includes(slice)) return res.status(400).json({ error: `Unknown state slice "${slice}".` });
   if (!("value" in (req.body || {}))) return res.status(400).json({ error: "Missing value." });

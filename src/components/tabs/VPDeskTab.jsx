@@ -4,7 +4,7 @@ import { fmtINR, fmtNum } from "../../utils/format.js";
 import { Badge } from "../ui.jsx";
 
 /* ================= VP'S DESK ================= */
-export default function VPDeskTab({ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct }) {
+export default function VPDeskTab({ prs, allLines, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }) {
   const [lane, setLane] = useState("good"); // good | exception
   const relevantPrs = prs.filter((pr) => pr.lines.some((l) => l.vpDecision === "Pending"));
   const laneCount = (laneName) => allLines.filter((l) => l.vpDecision === "Pending" && l.lane === laneName).length;
@@ -27,7 +27,7 @@ export default function VPDeskTab({ prs, allLines, vpDecideLine, cardStyle, tole
               <div><b>{pr.id}</b> <span style={{ color: "#9AA1AC", fontSize: 12.5 }}>— raised by {pr.raisedBy || "—"} ({pr.dept || "—"}), {pr.urgency}, required by {pr.requiredBy || "—"}</span></div>
               <Badge bg="#F0F0EF" fg="#6B7280">{pr.lines.length} line item(s) total</Badge>
             </div>
-            {linesInLane.map((ln) => <VPLineRow key={ln.lineId} pr={pr} ln={ln} vpDecideLine={vpDecideLine} />)}
+            {linesInLane.map((ln) => <VPLineRow key={ln.lineId} pr={pr} ln={ln} vpDecideLine={vpDecideLine} readOnly={readOnly} />)}
           </div>
         );
       })}
@@ -35,7 +35,7 @@ export default function VPDeskTab({ prs, allLines, vpDecideLine, cardStyle, tole
   );
 }
 
-function VPLineRow({ pr, ln, vpDecideLine }) {
+function VPLineRow({ pr, ln, vpDecideLine, readOnly }) {
   const [modifying, setModifying] = useState(false);
   const [mQty, setMQty] = useState(ln.requestedQty);
   const [mRate, setMRate] = useState(ln.requestedRate);
@@ -65,7 +65,7 @@ function VPLineRow({ pr, ln, vpDecideLine }) {
           </tbody>
         </table>
       </div>
-      {modifying ? (
+      {readOnly ? null : modifying ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
           <input type="number" value={mQty} onChange={(e) => setMQty(e.target.value)} placeholder="Qty" style={{ ...cellInput, width: 80 }} />
           <input type="number" value={mRate} onChange={(e) => setMRate(e.target.value)} placeholder="Rate" style={{ ...cellInput, width: 90 }} />
