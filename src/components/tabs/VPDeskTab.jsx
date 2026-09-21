@@ -5,12 +5,19 @@ import { matchesQuery } from "../../utils/search.js";
 import { Badge, SearchBox } from "../ui.jsx";
 
 /* ================= VP'S DESK ================= */
-export default function VPDeskTab({ prs, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }) {
+export default function VPDeskTab({ prs, items, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }) {
   const [lane, setLane] = useState("good"); // good | exception
   const [query, setQuery] = useState("");
   const relevantPrs = prs.filter((pr) => pr.lines.some((l) => l.vpDecision === "Pending"));
   const lineMatches = (l, pr) => matchesQuery(query, pr.id, pr.raisedBy, pr.dept, l.itemName, l.headName, l.proposedBrand, l.proposedModel, l.vendorDetails);
-  const pendingIn = (pr, laneName) => pr.lines.filter((l) => l.vpDecision === "Pending" && l.lane === laneName && lineMatches(l, pr));
+  // what is left of the budget item behind a line right now, before this line is approved (null: unlisted item)
+  const balanceOf = (l) => {
+    const it = l.itemId ? items.find((i) => i.id === l.itemId) : null;
+    return it ? { left: (it.qty || 0) - (it.committedQty || 0), approved: it.qty, unit: it.unit || "Nos" } : null;
+  };
+  // the lane was decided when the PR was raised; a line drops to the Exception Desk if the balance can no longer cover it
+  const laneOf = (l) => { const b = balanceOf(l); return l.lane === "exception" || (b && l.requestedQty > b.left) ? "exception" : "good"; };
+  const pendingIn = (pr, laneName) => pr.lines.filter((l) => l.vpDecision === "Pending" && laneOf(l) === laneName && lineMatches(l, pr));
   // the lane counts follow the search, so it is clear which lane holds the matches
   const laneCount = (laneName) => prs.reduce((n, pr) => n + pendingIn(pr, laneName).length, 0);
 
@@ -34,7 +41,7 @@ export default function VPDeskTab({ prs, vpDecideLine, cardStyle, tolerancePct, 
               <div><b>{pr.id}</b> <span style={{ color: "#9AA1AC", fontSize: 12.5 }}>— raised by {pr.raisedBy || "—"} ({pr.dept || "—"}), {pr.urgency}, required by {pr.requiredBy || "—"}</span></div>
               <Badge bg="#F0F0EF" fg="#6B7280">{pr.lines.length} line item(s) total</Badge>
             </div>
-            {linesInLane.map((ln) => <VPLineRow key={ln.lineId} pr={pr} ln={ln} vpDecideLine={vpDecideLine} readOnly={readOnly} />)}
+            {linesInLane.map((ln) => <VPLineRow key={ln.lineId} pr={pr} ln={ln} lane={laneOf(ln)} balance={balanceOf(ln)} vpDecideLine={vpDecideLine} readOnly={readOnly} />)}
           </div>
         );
       })}
@@ -42,10 +49,13 @@ export default function VPDeskTab({ prs, vpDecideLine, cardStyle, tolerancePct, 
   );
 }
 
-function VPLineRow({ pr, ln, vpDecideLine, readOnly }) {
+function VPLineRow({ pr, ln, lane, balance, vpDecideLine, readOnly }) {
   const [modifying, setModifying] = useState(false);
   const [mQty, setMQty] = useState(ln.requestedQty);
   const [mRate, setMRate] = useState(ln.requestedRate);
+  // follows the quantity being typed under Modify & Approve
+  const qtyToApprove = modifying ? Number(mQty) || 0 : ln.requestedQty;
+  const overBy = balance ? qtyToApprove - balance.left : 0;
 
   return (
     <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
@@ -55,7 +65,7 @@ function VPLineRow({ pr, ln, vpDecideLine, readOnly }) {
           <div style={{ fontSize: 11.5, color: "#9AA1AC" }}>{ln.reasons.join(" · ")}</div>
           {ln.vendorDetails && <div style={{ fontSize: 11.5, color: "#9AA1AC" }}>Vendor: {ln.vendorDetails}</div>}
         </div>
-        <Badge bg={ln.lane === "good" ? "#E9F6EF" : "#FCEAEA"} fg={ln.lane === "good" ? C.green : C.red}>{ln.lane === "good" ? "Good to Approve" : "Exception"}</Badge>
+        <Badge bg={lane === "good" ? "#E9F6EF" : "#FCEAEA"} fg={lane === "good" ? C.green : C.red}>{lane === "good" ? "Good to Approve" : "Exception"}</Badge>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", marginTop: 8, fontSize: 12 }}>
@@ -72,6 +82,13 @@ function VPLineRow({ pr, ln, vpDecideLine, readOnly }) {
           </tbody>
         </table>
       </div>
+      {balance && (
+        <div style={{ fontSize: 11.5, marginTop: 6, color: overBy > 0 ? C.red : "#9AA1AC", fontWeight: overBy > 0 ? 700 : 400 }}>
+          {overBy > 0
+            ? `Over balance by ${fmtNum(overBy)} ${balance.unit} — only ${fmtNum(Math.max(0, balance.left))} of the approved ${fmtNum(balance.approved)} ${balance.unit} is left.`
+            : `Balance after this approval: ${fmtNum(balance.left - qtyToApprove)} of ${fmtNum(balance.approved)} ${balance.unit}.`}
+        </div>
+      )}
       {readOnly ? null : modifying ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
           <input type="number" value={mQty} onChange={(e) => setMQty(e.target.value)} placeholder="Qty" style={{ ...cellInput, width: 80 }} />

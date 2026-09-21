@@ -5,8 +5,29 @@ import { Field, PRResultPanel } from "../ui.jsx";
 
 const URGENCIES = ["Normal", "High — opening critical", "Low"];
 
+/* What is left of an item's approved quantity once the requisitions already approved (committed) and
+   those still waiting on the VP are taken off. */
+function balanceLeft(item, pendingQtyByItem) {
+  return (item.qty || 0) - (item.committedQty || 0) - (pendingQtyByItem[item.id] || 0);
+}
+
+/* Never shown as a minus: an overdrawn item reads "Over by N". */
+function BalanceText({ left }) {
+  return left < 0 ? <span style={{ color: C.red, fontWeight: 700 }}>Over by {fmtNum(-left)}</span> : fmtNum(left);
+}
+
+function BalanceCell({ item, pendingQtyByItem, padding }) {
+  const pending = pendingQtyByItem[item.id] || 0;
+  return (
+    <td style={{ padding, textAlign: "right" }}>
+      <BalanceText left={balanceLeft(item, pendingQtyByItem)} />
+      {pending > 0 && <div style={{ fontSize: 10.5, color: "#9AA1AC", whiteSpace: "nowrap" }}>{fmtNum(pending)} awaiting approval</div>}
+    </td>
+  );
+}
+
 /* ================= RAISE PR (bundled, sequentially numbered) ================= */
-export default function RaisePRTab({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
+export default function RaisePRTab({ HEADS, approvedItemsForPR, pendingQtyByItem = {}, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const [mode, setMode] = useState("single");
   const MODES = [
     { id: "single", label: "Single Order" },
@@ -20,8 +41,8 @@ export default function RaisePRTab({ HEADS, approvedItemsForPR, submitBundledPR,
           <button key={m.id} onClick={() => setMode(m.id)} style={{ ...toggleBtn, ...(mode === m.id ? toggleActive : {}), padding: "9px 18px", fontSize: 13 }}>{m.label}</button>
         ))}
       </div>
-      {mode === "single" && <SingleOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />}
-      {mode === "bulk" && <BulkOrderPanel {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />}
+      {mode === "single" && <SingleOrderPanel {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />}
+      {mode === "bulk" && <BulkOrderPanel {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />}
       {mode === "unlisted" && <UnlistedOrderPanel {...{ HEADS, submitBundledPR, cardStyle, currentUser, readOnly }} />}
     </div>
   );
@@ -88,7 +109,7 @@ function ItemPickerTable({ items, headFilter, setHeadFilter, HEADS, showHeadFilt
 }
 
 /* ---------- SINGLE ORDER ---------- */
-function SingleOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
+function SingleOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const [headFilter, setHeadFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -118,17 +139,17 @@ function SingleOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyl
             <td style={{ padding: "8px 10px", fontWeight: 600 }}>{it.name}</td>
             <td style={{ padding: "8px 10px", color: "#6B7280" }}>{it.head}{it.sub ? ` · ${it.sub}` : ""}</td>
             <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtNum(it.qty)} {it.unit}</td>
-            <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtNum(it.qty - (it.committedQty || 0))}</td>
+            <BalanceCell item={it} pendingQtyByItem={pendingQtyByItem} padding="8px 10px" />
             <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtINR(it.rate)}</td>
           </tr>
         )}
       />
-      {item && <SingleOrderForm key={item.id} item={item} submitBundledPR={submitBundledPR} cardStyle={cardStyle} currentUser={currentUser} readOnly={readOnly} onClose={() => setSelectedId(null)} />}
+      {item && <SingleOrderForm key={item.id} item={item} pendingQty={pendingQtyByItem[item.id] || 0} submitBundledPR={submitBundledPR} cardStyle={cardStyle} currentUser={currentUser} readOnly={readOnly} onClose={() => setSelectedId(null)} />}
     </div>
   );
 }
 
-function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOnly, onClose }) {
+function SingleOrderForm({ item, pendingQty, submitBundledPR, cardStyle, currentUser, readOnly, onClose }) {
   const [qty, setQty] = useState("");
   const [rate, setRate] = useState(item.rate);
   const [proposedBrand, setProposedBrand] = useState(item.brand || "");
@@ -140,7 +161,9 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOn
   const [vendorDetails, setVendorDetails] = useState("");
   const [result, setResult] = useState(null);
 
-  const remainingQty = item.qty - (item.committedQty || 0);
+  const remainingQty = (item.qty || 0) - (item.committedQty || 0) - pendingQty;
+  // once submitted, this request is itself part of "awaiting approval", so the warning no longer applies
+  const overBy = result ? 0 : Number(qty) - Math.max(0, remainingQty);
 
   function handleSubmit() {
     const pr = submitBundledPR({
@@ -161,7 +184,8 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOn
           <button onClick={onClose} style={{ ...pgBtn, padding: "3px 10px" }}>✕</button>
         </div>
         <div style={{ background: "#FAFAF8", border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, marginTop: 10, fontSize: 12.5 }}>
-          <div>Approved qty: <b>{fmtNum(item.qty)} {item.unit}</b> · Remaining balance: <b>{fmtNum(remainingQty)}</b></div>
+          <div>Approved qty: <b>{fmtNum(item.qty)} {item.unit}</b> · Remaining balance: <b><BalanceText left={remainingQty} /></b></div>
+          {((item.committedQty || 0) > 0 || pendingQty > 0) && <div style={{ color: "#6B7280" }}>Already approved: <b>{fmtNum(item.committedQty || 0)}</b> · Awaiting approval: <b>{fmtNum(pendingQty)}</b></div>}
           <div>Approved rate: <b>{fmtINR(item.rate)}</b> · Approved brand: <b>{item.brand || "Not specified"}</b></div>
           <div>Approved model/specs: <b>{item.spec || "Not specified"}</b></div>
         </div>
@@ -173,6 +197,11 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOn
           <RequesterFields {...{ requestedBy, setRequestedBy, dept, setDept, urgency, setUrgency, requiredBy, setRequiredBy }} />
         </div>
         <Field label="Vendor / supplier (optional)"><input value={vendorDetails} onChange={(e) => setVendorDetails(e.target.value)} style={inputStyle} /></Field>
+        {Number(qty) > 0 && overBy > 0 && (
+          <div style={{ background: "#FCEAEA", color: C.red, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
+            This is {fmtNum(overBy)} {item.unit} more than the remaining balance. You can still submit it, but it will go to the VP's Exception Desk.
+          </div>
+        )}
         <button onClick={handleSubmit} disabled={readOnly || !qty || !rate} style={{ ...btnStyle(C.navy), opacity: (readOnly || !qty || !rate) ? 0.5 : 1 }}>Submit Purchase Requisition</button>
       </div>
       {result && <PRResultPanel pr={result} cardStyle={cardStyle} />}
@@ -181,7 +210,7 @@ function SingleOrderForm({ item, submitBundledPR, cardStyle, currentUser, readOn
 }
 
 /* ---------- BULK ORDER ---------- */
-function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }) {
+function BulkOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }) {
   const PAGE_SIZE = 10;
   const [headFilter, setHeadFilter] = useState(HEADS[0].name);
   const [query, setQuery] = useState("");
@@ -248,15 +277,17 @@ function BulkOrderPanel({ HEADS, approvedItemsForPR, submitBundledPR, cardStyle,
         renderRow={(it) => {
           const row = rows[it.id] || blankRow(it);
           const bg = row.checked ? "#fff" : "#F5F5F3";
+          // more than the balance is allowed, but it sends the line to the VP's Exception Desk
+          const over = row.checked && Number(row.qty) > Math.max(0, balanceLeft(it, pendingQtyByItem));
           return (
             <tr key={it.id} style={{ borderTop: "1px solid #F0EFEA", background: row.checked ? "#FFFBF0" : "transparent" }}>
               <td style={{ padding: "6px 10px" }}><input type="checkbox" checked={row.checked} onChange={(e) => setRow(it.id, { checked: e.target.checked }, it)} /></td>
               <td style={{ padding: "6px 10px", fontWeight: 600 }}>{it.name}</td>
               <td style={{ padding: "6px 10px", color: "#6B7280" }}>{it.head}{it.sub ? ` · ${it.sub}` : ""}</td>
               <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(it.qty)} {it.unit}</td>
-              <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(it.qty - (it.committedQty || 0))}</td>
+              <BalanceCell item={it} pendingQtyByItem={pendingQtyByItem} padding="6px 10px" />
               <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(it.rate)}</td>
-              <td style={{ padding: "6px 6px" }}><input type="number" placeholder="Qty" disabled={!row.checked} value={row.qty} onChange={(e) => setRow(it.id, { qty: e.target.value }, it)} style={{ ...cellInput, width: 60, background: bg }} /></td>
+              <td style={{ padding: "6px 6px" }}><input type="number" placeholder="Qty" disabled={!row.checked} value={row.qty} onChange={(e) => setRow(it.id, { qty: e.target.value }, it)} title={over ? "More than the remaining balance — this line will go to the VP's Exception Desk" : undefined} style={{ ...cellInput, width: 60, background: bg, ...(over ? { borderColor: C.red, color: C.red, fontWeight: 700 } : {}) }} /></td>
               <td style={{ padding: "6px 6px" }}><input type="number" placeholder="Rate" disabled={!row.checked} value={row.rate} onChange={(e) => setRow(it.id, { rate: e.target.value }, it)} style={{ ...cellInput, width: 70, background: bg }} /></td>
               <td style={{ padding: "6px 6px" }}><input placeholder="Brand" disabled={!row.checked} value={row.brand} onChange={(e) => setRow(it.id, { brand: e.target.value }, it)} style={{ ...cellInput, width: 80, textAlign: "left", background: bg }} /></td>
               <td style={{ padding: "6px 6px" }}><input placeholder="Model/Specs" disabled={!row.checked} value={row.model} onChange={(e) => setRow(it.id, { model: e.target.value }, it)} style={{ ...cellInput, width: 100, textAlign: "left", background: bg }} /></td>
