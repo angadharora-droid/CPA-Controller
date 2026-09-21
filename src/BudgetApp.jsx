@@ -146,6 +146,13 @@ export default function BudgetApp({ currentUser, onLogout }) {
     return out;
   }, [prs]);
 
+  // quantity per budget item still waiting on the VP: not committed yet, but already spoken for
+  const pendingQtyByItem = useMemo(() => {
+    const o = {};
+    allLines.forEach((l) => { if (l.itemId && l.vpDecision === "Pending") o[l.itemId] = (o[l.itemId] || 0) + (Number(l.requestedQty) || 0); });
+    return o;
+  }, [allLines]);
+
   // per-head committed totals: item-tracked commitments + approved unbudgeted lines charged to a head
   const headCommitted = useMemo(() => {
     const o = {};
@@ -337,9 +344,11 @@ export default function BudgetApp({ currentUser, onLogout }) {
   function submitBundledPR({ lines, raisedBy, dept, urgency, requiredBy }) {
     const prId = `PR-CPA-${padNum(prCounter, 4)}`;
     setPrCounter((c) => c + 1);
+    const spokenFor = { ...pendingQtyByItem }; // grows with this PR's own lines, should one item appear twice
     const builtLines = lines.map((ln, idx) => {
       const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
-      const cls = classifyLine(item, Number(ln.requestedQty), Number(ln.requestedRate), ln.proposedBrand, ln.proposedModel, tolerancePct, secondApprovalPct);
+      const cls = classifyLine(item, Number(ln.requestedQty), Number(ln.requestedRate), ln.proposedBrand, ln.proposedModel, tolerancePct, secondApprovalPct, item ? spokenFor[item.id] || 0 : 0);
+      if (item) spokenFor[item.id] = (spokenFor[item.id] || 0) + (Number(ln.requestedQty) || 0);
       return {
         lineId: `${prId}-L${idx + 1}`,
         itemId: ln.itemId || null,
@@ -407,6 +416,8 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
     const revisedVariance = item && item.rate > 0 ? ((finalRate - item.rate) / item.rate) * 100 : ln.variancePct;
     const needsSecond = !item || revisedVariance > secondApprovalPct;
+    // the VP may still approve past the balance, but never silently: the VP's Desk warns and the audit trail records it
+    const overBy = item ? finalQty - ((item.qty || 0) - (item.committedQty || 0)) : 0;
     const newStatus = needsSecond ? "Pending President" : "Pending Purchase Manager";
     updateLine(prId, lineId, {
       vpDecision: decision === "Modify-Approve" ? "Modified & Approved" : "Approved",
@@ -419,7 +430,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         ...it, committedQty: (it.committedQty || 0) + finalQty, committedVal: (it.committedVal || 0) + finalQty * finalRate,
       } : it));
     }
-    logAudit(`${prId} line "${ln.itemName}" ${decision === "Modify-Approve" ? "modified & approved" : "approved"} by VP (${fmtNum(finalQty)} @ ${fmtINR(finalRate)}).${needsSecond ? " Requires President's second approval (variance/unbudgeted)." : " Routed to Purchase Manager."}`);
+    logAudit(`${prId} line "${ln.itemName}" ${decision === "Modify-Approve" ? "modified & approved" : "approved"} by VP (${fmtNum(finalQty)} @ ${fmtINR(finalRate)}).${needsSecond ? " Requires President's second approval (variance/unbudgeted)." : " Routed to Purchase Manager."}${overBy > 0 ? ` Approved quantity exceeds the remaining approved balance by ${fmtNum(overBy)} ${item.unit || "Nos"}.` : ""}`);
   }
 
   function presidentDecideLine(prId, lineId, decision) {
@@ -711,10 +722,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <ItemStatusTab {...{ HEADS, items, cardStyle }} />
         )}
         {tab === "raisepr" && (role === "Department Head" || seesAllTabs) && (
-          <RaisePRTab {...{ HEADS, approvedItemsForPR, submitBundledPR, cardStyle, currentUser, readOnly }} />
+          <RaisePRTab {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />
         )}
         {tab === "vpdesk" && (role === "VP" || seesAllTabs) && (
-          <VPDeskTab {...{ prs, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
+          <VPDeskTab {...{ prs, items, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
         )}
         {tab === "president2nd" && (role === "President" || seesAllTabs) && (
           <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct, readOnly }} />
