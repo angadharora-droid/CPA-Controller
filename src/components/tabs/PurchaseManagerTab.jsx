@@ -10,7 +10,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up). Quantity and specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up), even after a line is marked Ready for PO — until its PO is issued. Quantity and specs are locked at this stage.</div>
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.map((pr) => {
         const lines = pr.lines.filter(inQueue);
@@ -43,7 +43,11 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
   const current = ln.pmRate || ln.finalRate;
   const [rate, setRate] = useState(current);
   function commit() {
-    if (Number(rate) !== Number(current)) pmSetRate(pr.id, ln.lineId, rate);
+    const n = Number(rate);
+    if (n === Number(current)) return;
+    pmSetRate(pr.id, ln.lineId, rate);
+    // pmSetRate refuses these, so show the rate that is still in force
+    if (isNaN(n) || n <= 0 || n > ln.finalRate) setRate(current);
   }
   return (
     <tr style={{ borderTop: "1px solid #F0EFEA" }}>
@@ -51,7 +55,7 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady }) {
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(ln.finalQty)}</td>
       <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(ln.finalRate)}</td>
       <td style={{ padding: "6px 6px", textAlign: "right" }}>
-        <input type="number" value={rate} disabled={ln.status === "Ready for PO"} onChange={(e) => setRate(e.target.value)} onBlur={commit} style={{ ...cellInput, width: 80 }} />
+        <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} onBlur={commit} style={{ ...cellInput, width: 80 }} />
       </td>
       <td style={{ padding: "6px 10px" }}><Badge bg={ln.status === "Ready for PO" ? "#E9F6EF" : "#EAF0FB"} fg={ln.status === "Ready for PO" ? C.green : C.blue}>{ln.status}</Badge></td>
       <td style={{ padding: "6px 10px" }}>
