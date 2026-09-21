@@ -553,10 +553,26 @@ export default function BudgetApp({ currentUser, onLogout }) {
         if (ref) updateLine(ref.prId, ref.lineId, { qtyReceived: (getLine(ref.prId, ref.lineId)?.qtyReceived || 0) + Number(l.qtyReceived || 0) });
       });
     }
-    const tr = transport ? computeTransport(transport) : null;
-    const trNote = tr ? ` Transport ${fmtINR(tr.amount)}${tr.gstPct > 0 ? ` + ${tr.gstType === "IGST" ? "IGST" : "CGST/SGST"} @ ${tr.gstPct}% = ${fmtINR(tr.total)}` : ""}${transport.transporter ? ` (${transport.transporter})` : ""}.` : "";
-    logAudit(`${grnId} recorded against ${poId} (Bill No. ${billNo || "—"}, dated ${billDate || "—"}): ${lines.length} line item(s) received.${trNote}`);
+    logAudit(`${grnId} recorded against ${poId} (Bill No. ${billNo || "—"}, dated ${billDate || "—"}): ${lines.length} line item(s) received.${transport ? ` ${transportNote(transport)}.` : ""}`);
     return grn;
+  }
+
+  /* "Transport ₹1,500 + IGST @ 5% = ₹1,575 (ABC Roadlines)" for the audit trail. */
+  function transportNote(transport) {
+    const tr = computeTransport(transport);
+    return `Transport ${fmtINR(tr.amount)}${tr.gstPct > 0 ? ` + ${tr.gstType === "IGST" ? "IGST" : "CGST/SGST"} @ ${tr.gstPct}% = ${fmtINR(tr.total)}` : ""}${transport.transporter ? ` (${transport.transporter})` : ""}`;
+  }
+
+  /* Add, correct or remove (transport = null) the freight on a GRN that is already recorded — the
+     transport bill often turns up after the goods have been received. */
+  function updateGRNTransport(grnId, transport) {
+    const grn = grns.find((g) => g.id === grnId);
+    if (!grn) return;
+    const next = transport || null;
+    if (!next && !grn.transport) return;
+    setGrns((prev) => prev.map((g) => g.id === grnId ? { ...g, transport: next, transportEditedBy: whoLabel, transportEditedAt: nowStamp() } : g));
+    if (!next) logAudit(`${grnId} (${grn.poId}): transport charge removed by ${whoLabel} — was ${transportNote(grn.transport)}.`);
+    else logAudit(`${grnId} (${grn.poId}): transport charge ${grn.transport ? "corrected" : "added"} by ${whoLabel}. ${transportNote(next)}${grn.transport ? ` — was ${transportNote(grn.transport)}` : ""}.`);
   }
 
   // POs issued before brand/spec were snapshotted: fill them in from the requisition line for display.
@@ -698,7 +714,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />
         )}
         {tab === "receive" && (role === "Store Manager" || isAdmin) && (
-          <ReceiveGoodsTab {...{ pos, recordGRN, grns, cardStyle }} />
+          <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle }} />
         )}
         {tab === "audit" && (
           <AuditTab {...{ audit, cardStyle }} />
