@@ -37,6 +37,12 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", userSchema);
 
+/* The pieces of app state the browser loads and saves. Each carries a revision number (revs.<slice>)
+   that goes up by one on every save — that is how an out-of-date browser is stopped from saving its
+   old copy over someone else's newer work. */
+const SLICES = ["items", "prs", "prCounter", "pos", "poCounter", "grns", "audit", "headFreeze", "ceilOverrides", "tolerancePct", "secondApprovalPct"];
+const revsOf = (doc) => Object.fromEntries(SLICES.map((k) => [k, Number(doc?.revs?.[k]) || 0]));
+
 const stateSchema = new mongoose.Schema({
   key: { type: String, required: true, unique: true },
   schemaVersion: { type: Number, default: 1 },
@@ -51,6 +57,7 @@ const stateSchema = new mongoose.Schema({
   ceilOverrides: { type: mongoose.Schema.Types.Mixed, default: {} },
   tolerancePct: { type: Number, default: 5 },
   secondApprovalPct: { type: Number, default: 15 },
+  revs: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { minimize: false, timestamps: true });
 const AppState = mongoose.model("AppState", stateSchema);
 
@@ -93,6 +100,7 @@ function freshState() {
     ceilOverrides: {},
     tolerancePct: 5,
     secondApprovalPct: 15,
+    revs: revsOf(null),
   };
 }
 
@@ -118,6 +126,14 @@ async function seed() {
     const state = freshState();
     await AppState.create(state);
     console.log(`Seeded app state (schema v${SCHEMA_VERSION}) with ${state.items.length} budget items across ${BASE_HEADS.length} cost heads.`);
+  }
+
+  // App state saved before revision numbers existed has none: start every slice at 0.
+  const main = await AppState.findOne({ key: "main" }).select("revs").lean();
+  const unnumbered = SLICES.filter((k) => typeof main?.revs?.[k] !== "number");
+  if (unnumbered.length) {
+    await AppState.updateOne({ key: "main" }, { $set: Object.fromEntries(unnumbered.map((k) => [`revs.${k}`, 0])) });
+    console.log(`Added revision numbers to ${unnumbered.length} app-state slice(s).`);
   }
 }
 
@@ -182,24 +198,84 @@ app.post("/api/login", async (req, res) => {
   res.json({ token, user: publicUser(user) });
 });
 
-const SLICES = ["items", "prs", "prCounter", "pos", "poCounter", "grns", "audit", "headFreeze", "ceilOverrides", "tolerancePct", "secondApprovalPct"];
+const VIEW_ONLY = "This login is view-only and cannot make changes.";
 
+/* Whole state, or with ?slices=a,b&auditLen=N just those slices plus the audit entries added since the
+   caller's copy (the audit trail only ever grows at the front, so its new entries are the first few).
+   Browsers re-read this way every few seconds when something changed, so it has to stay small. */
 app.get("/api/state", requireAuth, async (req, res) => {
-  const state = await AppState.findOne({ key: "main" }).lean();
-  if (!state) return res.status(500).json({ error: "App state not initialised." });
-  const out = {};
-  SLICES.forEach((k) => (out[k] = state[k]));
+  if (typeof req.query.slices !== "string") {
+    const state = await AppState.findOne({ key: "main" }).lean();
+    if (!state) return res.status(500).json({ error: "App state not initialised." });
+    const out = { revs: revsOf(state) };
+    SLICES.forEach((k) => (out[k] = state[k]));
+    return res.json(out);
+  }
+  const wanted = req.query.slices.split(",").filter((k) => SLICES.includes(k) && k !== "audit");
+  const auditLen = Math.max(0, parseInt(req.query.auditLen, 10) || 0);
+  const audit = { $ifNull: ["$audit", []] };
+  // one read, so the slices, the new audit entries and the revision numbers all belong to the same moment
+  const [doc] = await AppState.aggregate([
+    { $match: { key: "main" } },
+    { $project: {
+      _id: 0, revs: 1, ...Object.fromEntries(wanted.map((k) => [k, 1])),
+      auditTotal: { $size: audit },
+      auditNew: { $cond: [{ $gt: [{ $size: audit }, auditLen] }, { $slice: [audit, { $subtract: [{ $size: audit }, auditLen] }] }, []] },
+      // the entry just after the new ones: it should be the first one the caller already holds
+      auditNext: { $arrayElemAt: [audit, { $max: [0, { $subtract: [{ $size: audit }, auditLen] }] }] },
+    } },
+  ]);
+  if (!doc) return res.status(500).json({ error: "App state not initialised." });
+  const out = { revs: revsOf(doc), auditNew: doc.auditNew, auditNext: doc.auditNext ?? null, auditTotal: doc.auditTotal };
+  wanted.forEach((k) => (out[k] = doc[k]));
+  // the caller holds more entries than exist (the trail was rewritten by hand): send it whole
+  if (doc.auditTotal < auditLen) out.audit = (await AppState.findOne({ key: "main" }).select("audit").lean()).audit || [];
   res.json(out);
 });
 
-app.put("/api/state/:slice", requireAuth, async (req, res) => {
-  // The client hides every action from a view-only login; this is the guarantee behind it.
-  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: "This login is view-only and cannot make changes." });
-  const { slice } = req.params;
-  if (!SLICES.includes(slice)) return res.status(400).json({ error: `Unknown state slice "${slice}".` });
-  if (!("value" in (req.body || {}))) return res.status(400).json({ error: "Missing value." });
-  await AppState.updateOne({ key: "main" }, { $set: { [slice]: req.body.value } });
-  res.json({ ok: true });
+/* Cheap "has anything changed?" check that every open browser makes every few seconds. */
+app.get("/api/state/revs", requireAuth, async (req, res) => {
+  const state = await AppState.findOne({ key: "main" }).select("revs").lean();
+  if (!state) return res.status(500).json({ error: "App state not initialised." });
+  res.json({ revs: revsOf(state) });
+});
+
+/* Save. body = { base: { slice: revision the browser last saw }, set: { slice: new value }, auditAppend: [entries] }.
+   Every slice in `set` is written only if its revision still equals `base` — all of them or none, in one
+   atomic update — so one user action (say requisition lines + item commitments) can never half-save, and
+   a browser holding an old copy gets 409 instead of overwriting newer work. The audit trail is never
+   replaced, only added to, so it needs no revision check. */
+app.put("/api/state", requireAuth, async (req, res) => {
+  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: VIEW_ONLY });
+  const { base = {}, set = {}, auditAppend = [] } = req.body || {};
+  const keys = Object.keys(set);
+  const unknown = keys.find((k) => !SLICES.includes(k) || k === "audit");
+  if (unknown) return res.status(400).json({ error: `Unknown state slice "${unknown}".` });
+  if (!Array.isArray(auditAppend)) return res.status(400).json({ error: "auditAppend must be a list." });
+  if (!keys.length && !auditAppend.length) return res.status(400).json({ error: "Nothing to save." });
+
+  const filter = { key: "main" };
+  const $set = {}, $inc = {};
+  keys.forEach((k) => { filter[`revs.${k}`] = Number(base[k]) || 0; $set[k] = set[k]; $inc[`revs.${k}`] = 1; });
+  const update = { $inc, $currentDate: { updatedAt: true } };
+  if (keys.length) update.$set = $set;
+  if (auditAppend.length) { update.$push = { audit: { $each: auditAppend, $position: 0 } }; $inc["revs.audit"] = 1; }
+
+  // the raw collection: these are plain JSON slices, there is nothing for Mongoose to cast
+  const saved = await AppState.collection.findOneAndUpdate(filter, update, { returnDocument: "after", projection: { revs: 1 } });
+  if (!saved) {
+    const now = await AppState.findOne({ key: "main" }).select("revs").lean();
+    return res.status(409).json({ error: "Someone else changed this data first.", revs: revsOf(now) });
+  }
+  res.json({ ok: true, revs: revsOf(saved) });
+});
+
+/* The old save route replaced a whole slice with whatever the browser held, however old. Only a page
+   opened before the upgrade still calls it, and that page is exactly the out-of-date copy that must not
+   be written — so it is refused. */
+app.put("/api/state/:slice", requireAuth, (req, res) => {
+  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: VIEW_ONLY });
+  res.status(409).json({ error: "This page is out of date. Refresh the browser to carry on." });
 });
 
 /* serve the built frontend when dist/ exists (production) */
