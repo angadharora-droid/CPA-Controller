@@ -3,7 +3,7 @@ import { BASE_HEADS } from "./data/heads.js";
 import { api } from "./api.js";
 import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
-import { todayISO, computeTransport } from "./utils/po.js";
+import { todayISO, computeTransport, poIsLocked } from "./utils/po.js";
 import { C } from "./theme.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
@@ -500,10 +500,15 @@ export default function BudgetApp({ currentUser, onLogout }) {
 
   /* Correct the header of an issued PO (supplier, voucher details, discount, GST). Line items are
      left alone: they carry the approved quantities and rates. Any signatures were given on the old
-     content, so a real change clears them and the PO has to be signed again. */
+     content, so a real change clears them and the PO has to be signed again. Once goods have been
+     received against the PO it is locked: nobody, admin included, can edit it. */
   function updatePO(poId, fields) {
     const po = pos.find((p) => p.id === poId);
     if (!po) return null;
+    if (poIsLocked(po)) {
+      logAudit(`${whoLabel} attempted to edit ${poId} after goods were received against it — rejected by system (a received PO is locked).`);
+      return po;
+    }
     const patch = {};
     Object.keys(PO_EDITABLE).forEach((k) => {
       if (fields[k] === undefined) return;

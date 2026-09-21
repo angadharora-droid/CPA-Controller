@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { C, th, thR, inputStyle, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
-import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState } from "../../utils/po.js";
+import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked } from "../../utils/po.js";
 import { Field } from "../ui.jsx";
 import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
@@ -53,7 +53,8 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
   // editing a PO that has already been issued
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState(BLANK_FORM);
-  const editPO = pos.find((p) => p.id === editId) || null;
+  // a PO stops being editable the moment goods are received against it
+  const editPO = pos.find((p) => p.id === editId && !poIsLocked(p)) || null;
 
   function toggle(lineKey) {
     setSelected((prev) => {
@@ -73,6 +74,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
   }
 
   function startEdit(po) {
+    if (poIsLocked(po)) return;
     setEditId(po.id);
     setEditForm(formFromPO(po));
     setLastPOId(po.id);
@@ -150,7 +152,9 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
       {lastPO && !editPO && (
         <>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-            <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>
+            {poIsLocked(lastPO)
+              ? <LockedNote />
+              : <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
           </div>
           <POView po={lastPO} signPO={signPO} role={role} isAdmin={isAdmin} />
         </>
@@ -165,7 +169,9 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
               <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ color: "#9AA1AC" }}>Due {po.deliveryDate}</span>
                 <button onClick={() => { setEditId(null); setLastPOId(po.id); }} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
-                <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>
+                {poIsLocked(po)
+                  ? <LockedNote />
+                  : <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>}
               </span>
             </div>
           ))}
@@ -173,6 +179,10 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
       )}
     </div>
   );
+}
+
+function LockedNote() {
+  return <span title="Goods have been received against this PO, so it can no longer be edited." style={{ fontSize: 11.5, fontWeight: 600, color: "#9AA1AC" }}>Locked — goods received</span>;
 }
 
 function signatureCount(po) {
