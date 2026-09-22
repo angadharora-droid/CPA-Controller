@@ -10,6 +10,14 @@ export async function login(id, password) {
   return user;
 }
 
+/* Central sign-on: exchange the portal hand-off token for a session, stored exactly as login() does. */
+export async function loginWithSso(ssoToken) {
+  const { token, user } = await api("/sso", { method: "POST", body: { token: ssoToken } });
+  setToken(token);
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch {}
+  return user;
+}
+
 export function loadSession() {
   try {
     if (!getToken()) return null;

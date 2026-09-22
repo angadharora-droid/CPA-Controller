@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import { RAW_ITEMS } from "../src/data/rawItems.js";
 import { BASE_HEADS } from "../src/data/heads.js";
 import { nowStamp } from "../src/utils/format.js";
+import { verifySsoToken, directoryGuard } from "./ssoClient.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5000;
@@ -196,6 +197,25 @@ app.post("/api/login", async (req, res) => {
   }
   const token = jwt.sign({ sub: user.userId, name: user.name, role: user.role, isAdmin: !!user.isAdmin }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.json({ token, user: publicUser(user) });
+});
+
+/* Central sign-on from the CPG portal. The browser brings a hand-off token; the auth service says which
+   local account (by userId) it is linked to, and that account is signed in exactly as /api/login does.
+   Always 401 while AUTH_SERVICE_URL is not set; the password login above is untouched. */
+app.post("/api/sso", async (req, res) => {
+  const verified = await verifySsoToken(String((req.body || {}).token || ""));
+  if (!verified) return res.status(401).json({ error: "SSO sign-in failed." });
+  const user = await User.findOne({ userId: String(verified.localUserId || "").trim().toLowerCase() });
+  if (!user) return res.status(404).json({ error: "No account linked." });
+  const token = jwt.sign({ sub: user.userId, name: user.name, role: user.role, isAdmin: !!user.isAdmin }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  res.json({ token, user: publicUser(user) });
+});
+
+/* User directory for the portal's admin screen (shared-secret guarded). `id` is the userId the SSO
+   route looks accounts up by; there is no email on file. Password hashes are never included. */
+app.get("/api/sso/users", directoryGuard, async (req, res) => {
+  const list = await User.find({}, { userId: 1, name: 1, role: 1 }).sort({ userId: 1 }).lean();
+  res.json(list.map((u) => ({ id: u.userId, name: u.name, email: "", role: u.role })));
 });
 
 const VIEW_ONLY = "This login is view-only and cannot make changes.";
