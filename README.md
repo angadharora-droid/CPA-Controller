@@ -21,6 +21,7 @@ On first run the server seeds MongoDB with the user accounts below and an empty 
 | `amitkhandwal` | `Amit@GM#2026`     | VP (admin)         | Budget import & review, VP's Desk (first approval); admin flag opens every tab and action |
 | `arjun`        | `President@2026`   | President          | Budget Review & Freeze, President's 2nd Approval           |
 | `depthead`     | `Dept@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition       |
+| `ravisharma`   | `Ravi@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition — Ravi Sharma |
 | `purchase`     | `Purchase@2026`    | Purchase Manager   | Rate negotiation (down only), mark lines Ready for PO, Issue PO, Delivery Calendar |
 | `store`        | `Store@2026`       | Store Manager      | Delivery Calendar, Receive Material (GRN)                  |
 | `shashank`     | `Shashank@2026`    | Viewer (view-only) | Every screen, read-only — Shashank Kapley                  |
