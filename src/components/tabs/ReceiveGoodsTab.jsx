@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { C, th, thR, cellInput, inputStyle, btnStyle } from "../../theme.js";
 import { fmtNum } from "../../utils/format.js";
-import { computeTransport, fmtMoney, stateCodeOf, gstTypeForState } from "../../utils/po.js";
+import { computeTransport, fmtMoney, stateCodeOf, gstTypeForState, poIsFullyReceived } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { Field, SearchBox } from "../ui.jsx";
 import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
@@ -49,9 +49,11 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
   // adding / correcting the transport on a GRN that is already recorded
   const [editGrnId, setEditGrnId] = useState(null);
   const po = pos.find((p) => p.id === poId);
-  // narrows the PO dropdown; the PO already chosen always stays in it
+  // only POs with something still to receive are offered; a completed PO has no business here.
+  // The PO already chosen always stays in the list so the form does not lose it mid-entry.
+  const openPos = pos.filter((p) => !poIsFullyReceived(p));
   const [poQuery, setPoQuery] = useState("");
-  const poOptions = pos.filter((p) => p.id === poId || matchesQuery(poQuery, p.id, p.supplier, p.deliveryDate, ...p.lines.map((l) => l.itemName)));
+  const poOptions = openPos.filter((p) => p.id === poId || matchesQuery(poQuery, p.id, p.supplier, p.deliveryDate, ...p.lines.map((l) => l.itemName)));
   const [grnQuery, setGrnQuery] = useState("");
   const shownGrns = grns.filter((g) => matchesQuery(grnQuery, g.id, g.poId, g.billNo, g.billDate, g.receivedDate, g.recordedBy, g.transport && g.transport.transporter, g.transport && g.transport.lrNo, (pos.find((p) => p.id === g.poId) || {}).supplier, ...g.lines.map((l) => l.itemName)));
 
@@ -77,7 +79,10 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Receiving Material Against Bill</div>
       <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Record goods received against a PO and its supplier bill. Transport charges can be entered with the receipt, or added to it later from the history below.</div>
       <div style={{ ...cardStyle, marginBottom: 14 }}>
-        {pos.length > 0 && (
+        {pos.length > 0 && openPos.length === 0 && !poId && (
+          <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 12 }}>Every issued PO has been received in full. There is nothing left to receive.</div>
+        )}
+        {openPos.length > 0 && (
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
             <SearchBox value={poQuery} onChange={setPoQuery} placeholder="Find a PO by number, supplier or item…" />
             {poQuery.trim() && <span style={{ fontSize: 12, color: "#9AA1AC" }}>{poOptions.filter((p) => p.id !== poId).length} matching PO(s) in the list below</span>}
