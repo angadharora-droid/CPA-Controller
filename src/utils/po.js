@@ -116,6 +116,12 @@ export function poIsLocked(po) {
   return (po?.lines || []).some((l) => Number(l.qtyReceived) > 0);
 }
 
+/* A PO is complete once every line has been received in full. Nothing more can be received against it. */
+export function poIsFullyReceived(po) {
+  const lines = po?.lines || [];
+  return lines.length > 0 && lines.every((l) => (Number(l.qtyReceived) || 0) >= (Number(l.qty) || 0));
+}
+
 /* ---------- amount in words (Indian numbering: thousand, lakh, crore) ---------- */
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
 const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];

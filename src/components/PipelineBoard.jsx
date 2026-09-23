@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { C } from "../theme.js";
 import { fmtINR, fmtNum } from "../utils/format.js";
-import { fmtDateShort } from "../utils/po.js";
+import { fmtDateShort, poIsFullyReceived } from "../utils/po.js";
 import { matchesQuery } from "../utils/search.js";
 import { Badge, SearchBox } from "./ui.jsx";
 
@@ -22,7 +22,6 @@ const lineRate = (l) => Number(l.pmRate || l.finalRate) || 0;
 const poValue = (po) => (po.lines || []).reduce((s, l) => s + (Number(l.amount) || 0), 0);
 const poOrdered = (po) => (po.lines || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
 const poReceived = (po) => (po.lines || []).reduce((s, l) => s + (Number(l.qtyReceived) || 0), 0);
-const isFullyReceived = (po) => (po.lines || []).length > 0 && po.lines.every((l) => (Number(l.qtyReceived) || 0) >= (Number(l.qty) || 0));
 
 function groupByPR(lines) {
   const map = new Map();
@@ -157,8 +156,8 @@ export default function PipelineBoard({ allLines, pos, grns, openTab, canOpenTab
     const poMatches = (po) => matchesQuery(query, po.id, po.supplier, ...(po.lines || []).map((l) => l.itemName));
     const approve = groupByPR(allLines.filter((l) => APPROVE_STATUSES.has(l.status))).filter(prMatches);
     const issue = groupByPR(allLines.filter((l) => ISSUE_STATUSES.has(l.status))).filter(prMatches);
-    const delivery = pos.filter((po) => !isFullyReceived(po) && poMatches(po));
-    const closed = pos.filter((po) => isFullyReceived(po) && poMatches(po)).map((po) => {
+    const delivery = pos.filter((po) => !poIsFullyReceived(po) && poMatches(po));
+    const closed = pos.filter((po) => poIsFullyReceived(po) && poMatches(po)).map((po) => {
       const g = grns.find((x) => x.poId === po.id); // grns are newest-first
       return { po, closedOn: g ? fmtDateShort(g.receivedDate) || g.ts : "" };
     });
