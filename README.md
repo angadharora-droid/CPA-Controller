@@ -12,7 +12,7 @@ copy .env.example .env   # then fill in your MongoDB URI and a random JWT secret
 npm start                # runs the API (port 5000) and the frontend together
 ```
 
-On first run the server seeds MongoDB with the user accounts below and an empty budget on the 16-head cost taxonomy. If an older budget (previous taxonomy) is found it is moved to the `appstate_archives` collection, not deleted, and a fresh empty budget is seeded.
+On first run the server seeds MongoDB with the user accounts below and an empty budget on the 16-head cost taxonomy. If an older budget (previous taxonomy) is found it is kept as one document in the `appstate_archives` collection, not deleted, and a fresh empty budget is seeded.
 
 ## Users (seeded)
 
@@ -42,15 +42,26 @@ Every open browser keeps itself current and can never save an old copy over newe
 
 ## Database layout
 
-The app uses one database (with the current Atlas connection string, which names none, MongoDB calls it `test`):
+One collection per kind of record, one document per record (`server/store.js`). With the current Atlas connection string, which names no database, MongoDB calls the database `test`.
 
-- `appstates` - exactly one document, key `main`: the live app state.
-- `appstate_archives` - old copies, never deleted: budgets archived by a schema change (`main-archived-...`) and backups taken before manual fixes (`main-backup-...`).
-- `users` - logins.
+| Collection          | Holds                                                                  |
+|---------------------|------------------------------------------------------------------------|
+| `items`             | budget items, `_id` = item id                                          |
+| `requisitions`      | purchase requisitions with their lines, `_id` = PR number               |
+| `purchase_orders`   | purchase orders, `_id` = PO number                                      |
+| `goods_receipts`    | goods-receipt notes, `_id` = GRN number                                 |
+| `audit_trail`       | one entry per logged action; `seq` higher = newer                       |
+| `settings`          | one document: PR/PO counters, thresholds, head freeze, ceilings, and `revs` |
+| `users`             | logins                                                                 |
+| `appstate_archives` | old copies, never deleted: previous schemas, backups taken before manual fixes, and the old single document |
 
-`admin` and `local` are MongoDB's own system databases and always appear on the cluster. `node scripts/tidy-database.mjs` shows what is where; with `--apply` it moves any old copy still sitting in `appstates` into `appstate_archives` (file backup first, each copy verified, `main` untouched).
+`_order` on a record is only its position in the list on screen. The app still loads and saves whole lists; the server writes just the records that changed, and a save that touches several collections runs as one transaction (all or nothing). A standalone local MongoDB has no transactions, which is fine for development.
 
-Manual data fixes must go through `PUT /api/state` semantics too - at the very least bump `revs.<slice>` for every slice they write, or open browsers will not notice the change. Take a backup first with `node scripts/backup-state.mjs`.
+Until 28 Sep 2026 everything was kept in one document (`appstates`, key `main`). The first start of a server with `server/store.js` moves it into the collections above by itself: it copies every record, reads the copy back and compares it with the original, keeps the old document in `appstate_archives` (`main-before-split-...`), and removes the empty `appstates` collection. If the copy does not match, it puts everything back as it was and the server does not start. Do not roll back to an older server version after that: it does not know the new collections and would start an empty budget.
+
+`admin` and `local` are MongoDB's own system databases and always appear on the cluster.
+
+Manual data fixes must go through `PUT /api/state` semantics too - at the very least bump `revs.<slice>` in the `settings` document for every slice they write, or open browsers will not notice the change. Take a backup first with `node scripts/backup-state.mjs`.
 
 ## Budget submission workbook (VP import)
 
