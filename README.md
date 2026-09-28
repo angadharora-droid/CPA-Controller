@@ -12,7 +12,7 @@ copy .env.example .env   # then fill in your MongoDB URI and a random JWT secret
 npm start                # runs the API (port 5000) and the frontend together
 ```
 
-On first run the server seeds MongoDB with the user accounts below and an empty budget on the 16-head cost taxonomy. If an older budget (previous taxonomy) is found it is archived inside MongoDB, not deleted, and a fresh empty budget is seeded.
+On first run the server seeds MongoDB with the user accounts below and an empty budget on the 16-head cost taxonomy. If an older budget (previous taxonomy) is found it is moved to the `appstate_archives` collection, not deleted, and a fresh empty budget is seeded.
 
 ## Users (seeded)
 
@@ -38,7 +38,17 @@ Every open browser keeps itself current and can never save an old copy over newe
 - A refused save is not lost: the browser fetches the newer data, merges the unsaved change on top of it (`src/utils/merge.js`) and saves again. Two people approving against the same item both count; two requisitions that took the same PR number are renumbered; only a real clash - the same field of the same record changed two ways - keeps the first person's version and tells the second.
 - The audit trail is only ever added to, never replaced.
 - Every 5 seconds, and whenever the window gets focus, the browser asks whether anything changed and re-reads just those pieces (`src/sync.js`). A red banner shows while a change has not reached the server (connection lost, session expired).
-- After deploying this, everyone must refresh their browser once: a page opened before the upgrade is refused when it tries to save ("This page is out of date").
+- Every build has its own id (`dist/version.json`, also baked into the page). The server refuses any call from a page built from a different version (`426`), and that page clears itself down to a blank "A new version of the app is available" screen with a single Refresh button - so nobody can keep working on, or save from, an out-of-date page after a deploy. Open pages notice within one 5-second poll. Anything typed but not yet saved on the old page is dropped.
+
+## Database layout
+
+The app uses one database (with the current Atlas connection string, which names none, MongoDB calls it `test`):
+
+- `appstates` - exactly one document, key `main`: the live app state.
+- `appstate_archives` - old copies, never deleted: budgets archived by a schema change (`main-archived-...`) and backups taken before manual fixes (`main-backup-...`).
+- `users` - logins.
+
+`admin` and `local` are MongoDB's own system databases and always appear on the cluster. `node scripts/tidy-database.mjs` shows what is where; with `--apply` it moves any old copy still sitting in `appstates` into `appstate_archives` (file backup first, each copy verified, `main` untouched).
 
 Manual data fixes must go through `PUT /api/state` semantics too - at the very least bump `revs.<slice>` for every slice they write, or open browsers will not notice the change. Take a backup first with `node scripts/backup-state.mjs`.
 

@@ -62,6 +62,10 @@ const stateSchema = new mongoose.Schema({
 }, { minimize: false, timestamps: true });
 const AppState = mongoose.model("AppState", stateSchema);
 
+/* "appstates" holds only the live document (key "main"). Old copies — a document archived by a schema
+   change, backups taken before a manual fix — live here instead, unchanged, so they never clutter it. */
+const ARCHIVE_COLLECTION = "appstate_archives";
+
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
   { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
@@ -118,11 +122,13 @@ async function seed() {
   await migrateUsers();
 
   // App state: archive an out-of-date document, then seed a fresh one.
-  const existing = await AppState.findOne({ key: "main" });
+  const existing = await AppState.findOne({ key: "main" }).lean();
   if (existing && (existing.schemaVersion || 1) < SCHEMA_VERSION) {
     const archiveKey = `main-archived-v${existing.schemaVersion || 1}-${Date.now()}`;
-    await AppState.updateOne({ _id: existing._id }, { $set: { key: archiveKey } });
-    console.log(`Archived previous app state as "${archiveKey}" (schema v${existing.schemaVersion || 1} → v${SCHEMA_VERSION}).`);
+    // copied first and removed second: if anything fails in between, there are two copies, never none
+    await mongoose.connection.db.collection(ARCHIVE_COLLECTION).insertOne({ ...existing, key: archiveKey });
+    await AppState.deleteOne({ _id: existing._id });
+    console.log(`Archived previous app state as "${archiveKey}" in "${ARCHIVE_COLLECTION}" (schema v${existing.schemaVersion || 1} → v${SCHEMA_VERSION}).`);
   }
   if (!(await AppState.findOne({ key: "main" }))) {
     const state = freshState();
@@ -188,6 +194,32 @@ app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+/* The build of the frontend being served, from dist/version.json (written by `vite build`); null when
+   there is no build, e.g. under the Vite dev server. Re-read whenever the file changes, so a rebuild
+   without a restart does not lock out the new pages. */
+const distDir = path.resolve(__dirname, "..", "dist");
+const versionFile = path.join(distDir, "version.json");
+let build = { mtimeMs: -1, id: null };
+function currentBuild() {
+  try {
+    const { mtimeMs } = fs.statSync(versionFile);
+    if (mtimeMs !== build.mtimeMs) build = { mtimeMs, id: JSON.parse(fs.readFileSync(versionFile, "utf8")).version || null };
+  } catch {
+    build = { mtimeMs: -1, id: null };
+  }
+  return build.id;
+}
+
+/* A page opened before the latest deploy is refused on every call — it can neither read nor save — and
+   the page replaces itself with a Refresh screen. A page from before this check sends no version at all
+   and is refused the same way. ("dev" is the Vite dev server; /sso/users is the portal, not a page.) */
+app.use("/api", (req, res, next) => {
+  const serving = currentBuild();
+  const theirs = req.get("X-App-Version");
+  if (!serving || theirs === serving || theirs === "dev" || req.path === "/sso/users") return next();
+  res.status(426).json({ error: "This page is out of date. Refresh the browser to load the latest version.", code: "APP_OUTDATED" });
+});
 
 app.post("/api/login", async (req, res) => {
   const { id, password } = req.body || {};
@@ -300,7 +332,6 @@ app.put("/api/state/:slice", requireAuth, (req, res) => {
 });
 
 /* serve the built frontend when dist/ exists (production) */
-const distDir = path.resolve(__dirname, "..", "dist");
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir));
   app.use((req, res, next) => {
