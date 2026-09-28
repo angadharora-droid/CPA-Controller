@@ -40,6 +40,7 @@ if (uri.startsWith("mongodb+srv://")) dns.setServers(["8.8.8.8", "1.1.1.1"]);
 await mongoose.connect(uri);
 const states = mongoose.connection.db.collection("appstates");
 const s = await states.findOne({ key: "main" });
+if (!s) { console.error('This one-off fix was written for the old layout (everything in appstates "main"). The data now lives in separate collections (server/store.js), so it does not apply.'); process.exit(1); }
 let prs = structuredClone(s.prs);
 const items = structuredClone(s.items);
 // every PO a requisition line is on, oldest first (one line ended up on two POs while statuses were being wiped)

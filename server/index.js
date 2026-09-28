@@ -11,6 +11,7 @@ import { RAW_ITEMS } from "../src/data/rawItems.js";
 import { BASE_HEADS } from "../src/data/heads.js";
 import { nowStamp } from "../src/utils/format.js";
 import { verifySsoToken, directoryGuard } from "./ssoClient.js";
+import { openStore, SLICES, revsOf } from "./store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5000;
@@ -19,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const TOKEN_TTL = "12h";
 
 /* Bump this whenever the stored app-state shape or cost-head taxonomy changes.
-   An older "main" document is archived (never deleted) and a fresh one is seeded. */
+   The older state is archived as one document (never deleted) and a fresh one is seeded. */
 const SCHEMA_VERSION = 2;
 
 /* "Viewer" is not a workflow role: it opens every screen read-only and can never write app state. */
@@ -38,33 +39,11 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", userSchema);
 
-/* The pieces of app state the browser loads and saves. Each carries a revision number (revs.<slice>)
-   that goes up by one on every save — that is how an out-of-date browser is stopped from saving its
-   old copy over someone else's newer work. */
-const SLICES = ["items", "prs", "prCounter", "pos", "poCounter", "grns", "audit", "headFreeze", "ceilOverrides", "tolerancePct", "secondApprovalPct"];
-const revsOf = (doc) => Object.fromEntries(SLICES.map((k) => [k, Number(doc?.revs?.[k]) || 0]));
-
-const stateSchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  schemaVersion: { type: Number, default: 1 },
-  items: { type: mongoose.Schema.Types.Mixed, default: [] },
-  prs: { type: mongoose.Schema.Types.Mixed, default: [] },
-  prCounter: { type: Number, default: 1 },
-  pos: { type: mongoose.Schema.Types.Mixed, default: [] },
-  poCounter: { type: Number, default: 1 },
-  grns: { type: mongoose.Schema.Types.Mixed, default: [] },
-  audit: { type: mongoose.Schema.Types.Mixed, default: [] },
-  headFreeze: { type: mongoose.Schema.Types.Mixed, default: {} },
-  ceilOverrides: { type: mongoose.Schema.Types.Mixed, default: {} },
-  tolerancePct: { type: Number, default: 5 },
-  secondApprovalPct: { type: Number, default: 15 },
-  revs: { type: mongoose.Schema.Types.Mixed, default: {} },
-}, { minimize: false, timestamps: true });
-const AppState = mongoose.model("AppState", stateSchema);
-
-/* "appstates" holds only the live document (key "main"). Old copies — a document archived by a schema
-   change, backups taken before a manual fix — live here instead, unchanged, so they never clutter it. */
-const ARCHIVE_COLLECTION = "appstate_archives";
+/* The app state — items, requisitions, POs, GRNs, audit trail and settings — lives in one collection per
+   kind of record (server/store.js). The browser loads and saves it in "slices" (SLICES); each carries a
+   revision number (revs.<slice>) that goes up by one on every save — that is how an out-of-date browser
+   is stopped from saving its old copy over someone else's newer work. */
+let store;
 
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
@@ -90,8 +69,6 @@ function freshState() {
   const headFreeze = {};
   BASE_HEADS.forEach((h) => (headFreeze[h.name] = "Not Frozen"));
   return {
-    key: "main",
-    schemaVersion: SCHEMA_VERSION,
     items,
     prs: [],
     prCounter: 1,
@@ -121,28 +98,11 @@ async function seed() {
   if (added) console.log(`Seeded ${added} user account(s).`);
   await migrateUsers();
 
-  // App state: archive an out-of-date document, then seed a fresh one.
-  const existing = await AppState.findOne({ key: "main" }).lean();
-  if (existing && (existing.schemaVersion || 1) < SCHEMA_VERSION) {
-    const archiveKey = `main-archived-v${existing.schemaVersion || 1}-${Date.now()}`;
-    // copied first and removed second: if anything fails in between, there are two copies, never none
-    await mongoose.connection.db.collection(ARCHIVE_COLLECTION).insertOne({ ...existing, key: archiveKey });
-    await AppState.deleteOne({ _id: existing._id });
-    console.log(`Archived previous app state as "${archiveKey}" in "${ARCHIVE_COLLECTION}" (schema v${existing.schemaVersion || 1} → v${SCHEMA_VERSION}).`);
-  }
-  if (!(await AppState.findOne({ key: "main" }))) {
-    const state = freshState();
-    await AppState.create(state);
-    console.log(`Seeded app state (schema v${SCHEMA_VERSION}) with ${state.items.length} budget items across ${BASE_HEADS.length} cost heads.`);
-  }
-
-  // App state saved before revision numbers existed has none: start every slice at 0.
-  const main = await AppState.findOne({ key: "main" }).select("revs").lean();
-  const unnumbered = SLICES.filter((k) => typeof main?.revs?.[k] !== "number");
-  if (unnumbered.length) {
-    await AppState.updateOne({ key: "main" }, { $set: Object.fromEntries(unnumbered.map((k) => [`revs.${k}`, 0])) });
-    console.log(`Added revision numbers to ${unnumbered.length} app-state slice(s).`);
-  }
+  // App state: move it out of the old single document if need be, archive an out-of-date schema, or
+  // seed a fresh one on first run.
+  store = await openStore(mongoose.connection.db, mongoose.connection.getClient());
+  await store.init({ schemaVersion: SCHEMA_VERSION, fresh: freshState, log: (m) => console.log(m) });
+  if (!store.transactions) console.log("Note: this MongoDB is a standalone server without transactions (fine for local development); a save touching several collections is not all-or-nothing here.");
 }
 
 /* One-time account migrations. Safe to run on every start; each step is a no-op once applied. */
@@ -254,48 +214,32 @@ app.get("/api/sso/users", directoryGuard, async (req, res) => {
 const VIEW_ONLY = "This login is view-only and cannot make changes.";
 
 /* Whole state, or with ?slices=a,b&auditLen=N just those slices plus the audit entries added since the
-   caller's copy (the audit trail only ever grows at the front, so its new entries are the first few).
-   Browsers re-read this way every few seconds when something changed, so it has to stay small. */
+   caller's copy. Browsers re-read this way every few seconds when something changed, so it has to stay small. */
 app.get("/api/state", requireAuth, async (req, res) => {
   if (typeof req.query.slices !== "string") {
-    const state = await AppState.findOne({ key: "main" }).lean();
+    const state = await store.readAll();
     if (!state) return res.status(500).json({ error: "App state not initialised." });
-    const out = { revs: revsOf(state) };
+    const out = { revs: state.revs };
     SLICES.forEach((k) => (out[k] = state[k]));
     return res.json(out);
   }
   const wanted = req.query.slices.split(",").filter((k) => SLICES.includes(k) && k !== "audit");
   const auditLen = Math.max(0, parseInt(req.query.auditLen, 10) || 0);
-  const audit = { $ifNull: ["$audit", []] };
-  // one read, so the slices, the new audit entries and the revision numbers all belong to the same moment
-  const [doc] = await AppState.aggregate([
-    { $match: { key: "main" } },
-    { $project: {
-      _id: 0, revs: 1, ...Object.fromEntries(wanted.map((k) => [k, 1])),
-      auditTotal: { $size: audit },
-      auditNew: { $cond: [{ $gt: [{ $size: audit }, auditLen] }, { $slice: [audit, { $subtract: [{ $size: audit }, auditLen] }] }, []] },
-      // the entry just after the new ones: it should be the first one the caller already holds
-      auditNext: { $arrayElemAt: [audit, { $max: [0, { $subtract: [{ $size: audit }, auditLen] }] }] },
-    } },
-  ]);
-  if (!doc) return res.status(500).json({ error: "App state not initialised." });
-  const out = { revs: revsOf(doc), auditNew: doc.auditNew, auditNext: doc.auditNext ?? null, auditTotal: doc.auditTotal };
-  wanted.forEach((k) => (out[k] = doc[k]));
-  // the caller holds more entries than exist (the trail was rewritten by hand): send it whole
-  if (doc.auditTotal < auditLen) out.audit = (await AppState.findOne({ key: "main" }).select("audit").lean()).audit || [];
+  const out = await store.readSome(wanted, auditLen);
+  if (!out) return res.status(500).json({ error: "App state not initialised." });
   res.json(out);
 });
 
 /* Cheap "has anything changed?" check that every open browser makes every few seconds. */
 app.get("/api/state/revs", requireAuth, async (req, res) => {
-  const state = await AppState.findOne({ key: "main" }).select("revs").lean();
-  if (!state) return res.status(500).json({ error: "App state not initialised." });
-  res.json({ revs: revsOf(state) });
+  const revs = await store.readRevs();
+  if (!revs) return res.status(500).json({ error: "App state not initialised." });
+  res.json({ revs });
 });
 
 /* Save. body = { base: { slice: revision the browser last saw }, set: { slice: new value }, auditAppend: [entries] }.
    Every slice in `set` is written only if its revision still equals `base` — all of them or none, in one
-   atomic update — so one user action (say requisition lines + item commitments) can never half-save, and
+   transaction — so one user action (say requisition lines + item commitments) can never half-save, and
    a browser holding an old copy gets 409 instead of overwriting newer work. The audit trail is never
    replaced, only added to, so it needs no revision check. */
 app.put("/api/state", requireAuth, async (req, res) => {
@@ -304,23 +248,14 @@ app.put("/api/state", requireAuth, async (req, res) => {
   const keys = Object.keys(set);
   const unknown = keys.find((k) => !SLICES.includes(k) || k === "audit");
   if (unknown) return res.status(400).json({ error: `Unknown state slice "${unknown}".` });
+  const notList = keys.find((k) => ["items", "prs", "pos", "grns"].includes(k) && !Array.isArray(set[k]));
+  if (notList) return res.status(400).json({ error: `"${notList}" must be a list.` });
   if (!Array.isArray(auditAppend)) return res.status(400).json({ error: "auditAppend must be a list." });
   if (!keys.length && !auditAppend.length) return res.status(400).json({ error: "Nothing to save." });
 
-  const filter = { key: "main" };
-  const $set = {}, $inc = {};
-  keys.forEach((k) => { filter[`revs.${k}`] = Number(base[k]) || 0; $set[k] = set[k]; $inc[`revs.${k}`] = 1; });
-  const update = { $inc, $currentDate: { updatedAt: true } };
-  if (keys.length) update.$set = $set;
-  if (auditAppend.length) { update.$push = { audit: { $each: auditAppend, $position: 0 } }; $inc["revs.audit"] = 1; }
-
-  // the raw collection: these are plain JSON slices, there is nothing for Mongoose to cast
-  const saved = await AppState.collection.findOneAndUpdate(filter, update, { returnDocument: "after", projection: { revs: 1 } });
-  if (!saved) {
-    const now = await AppState.findOne({ key: "main" }).select("revs").lean();
-    return res.status(409).json({ error: "Someone else changed this data first.", revs: revsOf(now) });
-  }
-  res.json({ ok: true, revs: revsOf(saved) });
+  const saved = await store.save({ base, set, auditAppend });
+  if (saved.conflict) return res.status(409).json({ error: "Someone else changed this data first.", revs: saved.revs });
+  res.json({ ok: true, revs: saved.revs });
 });
 
 /* The old save route replaced a whole slice with whatever the browser held, however old. Only a page
