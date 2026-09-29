@@ -44,7 +44,7 @@ export default function DemoTab({ items, HEADS, headFreeze, freezeHead, submitBu
       walkthrough: vpApproveFirstLine,
     },
     {
-      title: "5 · Blank Model/Specs — Exception", desc: "Room Amenities item requested with the Model/Specs field left empty.",
+      title: "5 · Blank Model/Specs — still Good to Approve", desc: "Room Amenities item requested with the Model/Specs field left empty — noted for the VP, but only quantity and rate decide the lane.",
       run: () => {
         const it = items.find((i) => i.head === "Room Amenities (Non Consumable)" && i.status === "Complete" && i.freezeState !== "Not Frozen" && !i.deleted); if (!it) return null;
         return submitBundledPR({ lines: [{ itemId: it.id, requestedQty: 10, requestedRate: it.rate, proposedBrand: it.brand || "As approved", proposedModel: "" }], raisedBy: "Housekeeping Manager", dept: "Housekeeping", urgency: "Normal", requiredBy: "" });

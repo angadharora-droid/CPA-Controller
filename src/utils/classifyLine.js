@@ -22,9 +22,7 @@ export function classifyLine(item, requestedQty, requestedRate, proposedBrand, p
   const remainingQty = (item.qty || 0) - (item.committedQty || 0) - (pendingQty || 0);
   const variancePct = item.rate > 0 ? ((requestedRate - item.rate) / item.rate) * 100 : 0;
 
-  if (brandChanged) { lane = "exception"; reasons.push(`Brand differs from approved brand ("${approvedBrand}")`); }
-  if (specChanged) { lane = "exception"; reasons.push("Model/Specs differ from the approved submission"); }
-  if (specBlank) { lane = "exception"; reasons.push("Model/Specs left blank"); }
+  // only quantity and rate decide the lane
   if (variancePct > tolerancePct) { lane = "exception"; reasons.push(`Rate variance ${variancePct.toFixed(2)}% exceeds the ${tolerancePct}% good-to-approve threshold`); }
   if (requestedQty > remainingQty) {
     lane = "exception";
@@ -32,8 +30,20 @@ export function classifyLine(item, requestedQty, requestedRate, proposedBrand, p
     const used = [(item.committedQty || 0) > 0 && `${fmtNum(item.committedQty)} already approved`, pendingQty > 0 && `${fmtNum(pendingQty)} awaiting approval on other requisitions`].filter(Boolean).join(", ");
     reasons.push(`Quantity is above the approved quantity — asked for ${fmtNum(requestedQty)} ${unit} but only ${fmtNum(Math.max(0, remainingQty))} of the approved ${fmtNum(item.qty || 0)} ${unit} is left${used ? ` (${used})` : ""}: over by ${fmtNum(requestedQty - Math.max(0, remainingQty))} ${unit}`);
   }
+  // brand and Model/Specs are noted for the VP to read, but they do not make a line an exception
+  if (brandChanged) reasons.push(`Brand differs from approved brand ("${approvedBrand}")`);
+  if (specChanged) reasons.push("Model/Specs differ from the approved submission");
+  if (specBlank) reasons.push("Model/Specs left blank");
   if (reasons.length === 0) reasons.push("Matches approved brand, specs, rate and quantity");
 
   const needsSecondApproval = variancePct > secondApprovalPct;
   return { lane, reasons, variancePct, needsSecondApproval, remainingQty };
+}
+
+// Lane of a line that has already been raised. Lines raised while brand and Model/Specs still counted
+// may carry "exception" for those alone; only an unlisted item, a quantity reason or a rate reason keeps them there.
+export function raisedLane(line) {
+  if (line.lane !== "exception") return "good";
+  if (!line.itemId) return "exception";
+  return (line.reasons || []).some((r) => /^(Quantity|Rate variance)/.test(r)) ? "exception" : "good";
 }

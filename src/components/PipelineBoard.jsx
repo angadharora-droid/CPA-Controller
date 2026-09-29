@@ -3,6 +3,7 @@ import { C } from "../theme.js";
 import { fmtINR, fmtNum } from "../utils/format.js";
 import { fmtDateShort, poIsFullyReceived } from "../utils/po.js";
 import { matchesQuery } from "../utils/search.js";
+import { raisedLane } from "../utils/classifyLine.js";
 import { Badge, SearchBox } from "./ui.jsx";
 
 /* ================= PURCHASE PIPELINE (Approve PR → Issue PO → Follow on Delivery → Received & Closed) ================= */
@@ -96,7 +97,7 @@ function PRCard({ pr, stageId, onOpen }) {
                 <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.itemName}</div>
                 <div style={muted}>
                   {fmtNum(l.finalQty)} × {fmtINR(lineRate(l))}
-                  {stageId === "approve" && l.lane === "exception" && <span style={{ color: C.red, fontWeight: 700 }}> · Exception</span>}
+                  {stageId === "approve" && raisedLane(l) === "exception" && <span style={{ color: C.red, fontWeight: 700 }}> · Exception</span>}
                   {!l.itemId && <span style={{ color: C.amber, fontWeight: 700 }}> · Unbudgeted</span>}
                 </div>
               </div>

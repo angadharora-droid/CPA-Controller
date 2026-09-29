@@ -2,6 +2,7 @@ import { useState } from "react";
 import { C, cellInput, btnStyle, toggleBtn } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
+import { raisedLane } from "../../utils/classifyLine.js";
 import { Badge, SearchBox } from "../ui.jsx";
 
 /* ================= VP'S DESK ================= */
@@ -16,7 +17,7 @@ export default function VPDeskTab({ prs, items, vpDecideLine, cardStyle, toleran
     return it ? { left: (it.qty || 0) - (it.committedQty || 0), approved: it.qty, unit: it.unit || "Nos" } : null;
   };
   // the lane was decided when the PR was raised; a line drops to the Exception Desk if the balance can no longer cover it
-  const laneOf = (l) => { const b = balanceOf(l); return l.lane === "exception" || (b && l.requestedQty > b.left) ? "exception" : "good"; };
+  const laneOf = (l) => { const b = balanceOf(l); return raisedLane(l) === "exception" || (b && l.requestedQty > b.left) ? "exception" : "good"; };
   const pendingIn = (pr, laneName) => pr.lines.filter((l) => l.vpDecision === "Pending" && laneOf(l) === laneName && lineMatches(l, pr));
   // the lane counts follow the search, so it is clear which lane holds the matches
   const laneCount = (laneName) => prs.reduce((n, pr) => n + pendingIn(pr, laneName).length, 0);
@@ -24,7 +25,7 @@ export default function VPDeskTab({ prs, items, vpDecideLine, cardStyle, toleran
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>VP's Desk</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Every PR line lands here first. Good-to-Approve lines match approved brand/specs/rate/quantity (≤{tolerancePct}% variance); Exception lines need a closer look. You can split a bundled PR — approve, modify, reject, or defer each line independently. Lines above {secondApprovalPct}% variance (or unbudgeted) go on to the President after your approval.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Every PR line lands here first. Good-to-Approve lines are within the approved quantity and rate (≤{tolerancePct}% variance); Exception lines are over the balance or over the rate. Brand and Model/Specs differences are noted but don't make a line an exception. You can split a bundled PR — approve, modify, reject, or defer each line independently. Lines above {secondApprovalPct}% variance (or unbudgeted) go on to the President after your approval.</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         <button onClick={() => setLane("good")} style={{ ...toggleBtn, ...(lane === "good" ? { background: C.green, color: "#fff", borderColor: C.green } : {}) }}>Good to Approve ({laneCount("good")})</button>
         <button onClick={() => setLane("exception")} style={{ ...toggleBtn, ...(lane === "exception" ? { background: C.red, color: "#fff", borderColor: C.red } : {}) }}>Exception Desk ({laneCount("exception")})</button>
