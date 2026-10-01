@@ -32,6 +32,31 @@ export function GstRateField({ label = "GST rate", value, onChange }) {
   );
 }
 
+/* GST rate for one PO item: "" follows the order's rate, otherwise the item's own rate. */
+export function LineGstSelect({ value, orderPct, onChange, disabled }) {
+  const [pickedOther, setCustom] = useState(false);
+  const own = value !== undefined && value !== null && value !== "";
+  const custom = pickedOther || (own && !GST_SLABS.includes(String(value)));
+  return (
+    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+      <select
+        value={custom ? "other" : own ? String(value) : ""}
+        disabled={disabled}
+        onChange={(e) => {
+          if (e.target.value === "other") { setCustom(true); return; }
+          setCustom(false); onChange(e.target.value);
+        }}
+        style={{ ...inputStyle, width: "auto", minWidth: 150, padding: "5px 8px", fontWeight: own ? 700 : 400 }}
+      >
+        <option value="">Order rate ({Number(orderPct) || 0}%)</option>
+        {GST_SLABS.map((s) => <option key={s} value={s}>{s === "0" ? "No GST (0%)" : `${s}%`}</option>)}
+        <option value="other">Other rate…</option>
+      </select>
+      {custom && <input type="number" min="0" max="100" step="0.01" value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={{ ...inputStyle, width: 80, padding: "5px 8px" }} placeholder="%" autoFocus />}
+    </div>
+  );
+}
+
 /* CGST + SGST vs IGST. `value` is the type in force; `manual` says whether the user picked it by
    hand (otherwise it follows the supplier's state code). */
 export function GstTypeField({ label = "GST type", value, manual, onPick, onAuto, stateCode }) {

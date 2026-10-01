@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { C, th, thR, inputStyle, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum } from "../../utils/format.js";
-import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked } from "../../utils/po.js";
+import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked, lineHasOwnGst } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { Field, SearchBox } from "../ui.jsx";
-import { GstRateField, GstTypeField, TotalRow } from "../GstFields.jsx";
+import { GstRateField, GstTypeField, LineGstSelect, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
 
 /* Everything on a PO other than its line items. `gstTypeManual` is null while the GST type
-   simply follows the supplier's state code. */
+   simply follows the supplier's state code. `lineGst` holds the items given their own GST rate,
+   keyed "prId::lineId"; any item not in it is taxed at the order's rate. */
 const BLANK_FORM = {
   // supplier (bill from)
   supplier: "", supplierAddress: "", supplierGstin: "", supplierState: "Maharashtra, Code : 27", supplierContact: "",
@@ -18,8 +19,10 @@ const BLANK_FORM = {
   referenceNo: "", paymentTerms: "100% ADVANCE", otherReferences: "",
   deliveryTerms: "AFTER PAYMENT WITHIN 8-10 DAYS", dispatchThrough: "", destination: "Amravati", deliveryDate: "",
   // money
-  discountPct: "0", gstPct: "18", gstTypeManual: null,
+  discountPct: "0", gstPct: "18", gstTypeManual: null, lineGst: {},
 };
+
+const lineKey = (l) => `${l.prId}::${l.lineId}`;
 
 function formGstType(form) {
   return form.gstTypeManual || gstTypeForState(stateCodeOf(form.supplierGstin, form.supplierState));
@@ -27,8 +30,10 @@ function formGstType(form) {
 
 /* The fields sent to issuePO / updatePO. */
 function formToFields(form) {
-  const { gstTypeManual, ...rest } = form;
-  return { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form) };
+  const { gstTypeManual, lineGst, ...rest } = form;
+  const ownGst = {};
+  Object.entries(lineGst || {}).forEach(([k, v]) => { if (v !== "" && v !== null && v !== undefined) ownGst[k] = Number(v) || 0; });
+  return { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form), lineGst: ownGst };
 }
 
 function formFromPO(po) {
@@ -39,6 +44,8 @@ function formFromPO(po) {
   form.gstPct = String(Number(po.gstPct) || 0);
   const saved = po.gstType === "IGST" ? "IGST" : "CGST_SGST";
   form.gstTypeManual = saved === formGstType({ ...form, gstTypeManual: null }) ? null : saved;
+  form.lineGst = {};
+  po.lines.forEach((l) => { if (lineHasOwnGst(l)) form.lineGst[lineKey(l)] = String(Number(l.gstPct) || 0); });
   return form;
 }
 
@@ -137,7 +144,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
       {selectedLines.length > 0 && (
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>PO Details — {selectedLines.length} line item(s) selected</div>
-          <PODetailsFields form={form} setForm={setForm} lines={selectedLines.map((l) => ({ qty: l.finalQty, rate: l.pmRate || l.finalRate }))} />
+          <PODetailsFields form={form} setForm={setForm} lines={selectedLines.map((l) => ({ key: lineKey(l), itemName: l.itemName, qty: l.finalQty, rate: l.pmRate || l.finalRate }))} />
           <button onClick={handleIssue} disabled={!canIssue} style={{ ...btnStyle(C.navy), opacity: canIssue ? 1 : 0.5 }}>Issue PO</button>
         </div>
       )}
@@ -146,14 +153,14 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
         <div style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
           <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
-            Supplier, voucher details, discount and GST can be corrected here. Items, quantities and rates stay as approved on the requisition.
+            Supplier, voucher details, discount and GST (for the order or per item) can be corrected here. Items, quantities and rates stay as approved on the requisition.
           </div>
           {signatureCount(editPO) > 0 && (
             <div style={{ background: "#FDF2E3", color: C.amber, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
               This PO already has {signatureCount(editPO)} signature(s). Saving a change clears them, so the corrected PO must be signed again.
             </div>
           )}
-          <PODetailsFields form={editForm} setForm={setEditForm} lines={editPO.lines} />
+          <PODetailsFields form={editForm} setForm={setEditForm} lines={editPO.lines.map((l) => ({ key: lineKey(l), itemName: l.itemName, qty: l.qty, rate: l.rate, amount: l.amount }))} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleSaveEdit} disabled={!canSave} style={{ ...btnStyle(C.navy), opacity: canSave ? 1 : 0.5 }}>Save changes</button>
             <button onClick={() => setEditId(null)} style={{ ...btnStyle(C.grey) }}>Cancel</button>
@@ -207,15 +214,22 @@ function signatureCount(po) {
 }
 
 /* Supplier, our details, voucher details, discount & tax, with a live total — shared by the
-   issue form and the edit form. `lines` only feeds the total preview. */
+   issue form and the edit form. `lines` ({ key, itemName, qty, rate }) feed the per-item GST
+   pickers and the total preview. */
 function PODetailsFields({ form, setForm, lines }) {
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const setValue = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
+  const setLineGst = (key) => (v) => setForm((f) => {
+    const lineGst = { ...(f.lineGst || {}) };
+    if (v === "") delete lineGst[key]; else lineGst[key] = v;
+    return { ...f, lineGst };
+  });
+  const lineGst = form.lineGst || {};
   const supplierCode = stateCodeOf(form.supplierGstin, form.supplierState);
   const gstType = formGstType(form);
   // same maths as the printed document
-  const preview = computePOTotals({ lines, discountPct: form.discountPct, gstPct: form.gstPct, gstType });
-  const halfPct = preview.gstPct / 2;
+  const preview = computePOTotals({ lines: lines.map((l) => ({ ...l, gstPct: lineGst[l.key] })), discountPct: form.discountPct, gstPct: form.gstPct, gstType });
+  const ownCount = lines.filter((l) => lineGst[l.key] !== undefined).length;
 
   return (
     <>
@@ -248,20 +262,41 @@ function PODetailsFields({ form, setForm, lines }) {
       <SectionTitle>Discount &amp; tax</SectionTitle>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
         <Field label="Discount % (on the whole order)"><input type="number" min="0" max="100" step="0.01" value={form.discountPct} onChange={set("discountPct")} style={inputStyle} /></Field>
-        <GstRateField value={form.gstPct} onChange={setValue("gstPct")} />
+        <GstRateField label={lines.length > 1 ? "GST rate (whole order)" : "GST rate"} value={form.gstPct} onChange={setValue("gstPct")} />
         <GstTypeField value={gstType} manual={!!form.gstTypeManual} onPick={setValue("gstTypeManual")} onAuto={() => setValue("gstTypeManual")(null)} stateCode={supplierCode} />
       </div>
+
+      {(lines.length > 1 || ownCount > 0) && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 12, overflowX: "auto" }}>
+          <div style={{ padding: "7px 10px", fontSize: 12, color: "#6B7280", borderBottom: `1px solid ${C.line}`, background: "#FAFAF8" }}>
+            <b style={{ color: C.text }}>GST per item</b> — items left on "Order rate" follow the rate above; pick a rate to tax an item differently, or "No GST" to leave it untaxed.
+            {ownCount > 0 && <> {ownCount} item(s) on their own rate.</>}
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <tbody>
+              {lines.map((l) => (
+                <tr key={l.key} style={{ borderTop: "1px solid #F0EFEA" }}>
+                  <td style={{ padding: "5px 10px", fontWeight: 600 }}>{l.itemName}</td>
+                  <td style={{ padding: "5px 10px", textAlign: "right", color: "#6B7280", whiteSpace: "nowrap" }}>{fmtMoney(Number(l.amount) || (Number(l.qty) || 0) * (Number(l.rate) || 0))}</td>
+                  <td style={{ padding: "5px 10px", width: 1 }}><LineGstSelect value={lineGst[l.key]} orderPct={form.gstPct} onChange={setLineGst(l.key)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, maxWidth: 380, fontSize: 12.5, background: "#FAFAF8" }}>
         <TotalRow label="Subtotal" value={fmtMoney(preview.subtotal)} />
         {preview.discount > 0 && <TotalRow label={`Less: Discount @ ${preview.discountPct}%`} value={fmtSigned(-preview.discount)} />}
-        {preview.gstPct > 0 && gstType === "IGST" && <TotalRow label={`IGST @ ${preview.gstPct}%`} value={fmtMoney(preview.igst)} />}
-        {preview.gstPct > 0 && gstType !== "IGST" && (
-          <>
-            <TotalRow label={`SGST @ ${halfPct}%`} value={fmtMoney(preview.sgst)} />
-            <TotalRow label={`CGST @ ${halfPct}%`} value={fmtMoney(preview.cgst)} />
-          </>
-        )}
+        {preview.taxes.map((x) => gstType === "IGST"
+          ? <TotalRow key={x.pct} label={`IGST @ ${x.pct}%`} value={fmtMoney(x.igst)} />
+          : (
+            <Fragment key={x.pct}>
+              <TotalRow label={`SGST @ ${x.pct / 2}%`} value={fmtMoney(x.sgst)} />
+              <TotalRow label={`CGST @ ${x.pct / 2}%`} value={fmtMoney(x.cgst)} />
+            </Fragment>
+          ))}
         {preview.roundOff !== 0 && <TotalRow label="Round off" value={fmtSigned(preview.roundOff)} />}
         <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 4 }}>
           <TotalRow label="PO total" value={`₹ ${fmtMoney(preview.total)}`} bold />
