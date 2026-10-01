@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { createStateSync } from "./sync.js";
 import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
-import { todayISO, computeTransport, poIsLocked } from "./utils/po.js";
+import { todayISO, computeTransport, poIsLocked, lineHasOwnGst } from "./utils/po.js";
 import { C } from "./theme.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
@@ -485,7 +485,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
   function issuePO({
     lineRefs, supplier, supplierAddress, supplierGstin, supplierState, supplierContact,
     invoiceTo, consignee, referenceNo, paymentTerms, otherReferences, deliveryTerms, deliveryDate,
-    dispatchThrough, destination, discountPct, gstPct, gstType,
+    dispatchThrough, destination, discountPct, gstPct, gstType, lineGst,
   }) {
     if (!lineRefs.length) return null;
     const poId = `PO-CPA-${padNum(poCounter, 4)}`;
@@ -494,12 +494,15 @@ export default function BudgetApp({ currentUser, onLogout }) {
       const ln = getLine(prId, lineId);
       const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
       const rate = ln.pmRate || ln.finalRate;
+      const ownGst = lineGst?.[`${prId}::${lineId}`];
       return {
         prId, lineId, itemName: ln.itemName,
         // what was actually requisitioned, falling back to the approved budget line
         brand: ln.proposedBrand || (item && item.brand) || "",
         spec: ln.proposedModel || (item && item.spec) || "",
         qty: ln.finalQty, rate, amount: ln.finalQty * rate, unit: (item && item.unit) || "Nos", qtyReceived: 0,
+        // null: taxed at the order's GST rate
+        gstPct: ownGst === undefined || ownGst === null ? null : Number(ownGst) || 0,
       };
     });
     const po = {
@@ -518,8 +521,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
     return po;
   }
 
-  /* Correct the header of an issued PO (supplier, voucher details, discount, GST). Line items are
-     left alone: they carry the approved quantities and rates. Any signatures were given on the old
+  /* Correct the header of an issued PO (supplier, voucher details, discount, GST) and the GST rate of
+     single items (`fields.lineGst`, keyed "prId::lineId"; an item left out follows the order's rate).
+     Quantities and rates are left alone: they are as approved. Any signatures were given on the old
      content, so a real change clears them and the PO has to be signed again. Once goods have been
      received against the PO it is locked: nobody, admin included, can edit it. */
   function updatePO(poId, fields) {
@@ -539,16 +543,27 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const current = (k) => (k === "discountPct" || k === "gstPct") ? Number(po[k]) || 0
       : k === "gstType" ? (po[k] === "IGST" ? "IGST" : "CGST_SGST")
       : String(po[k] ?? "");
-    const changed = Object.keys(patch).filter((k) => patch[k] !== current(k));
+    const changed = Object.keys(patch).filter((k) => patch[k] !== current(k)).map((k) => PO_EDITABLE[k]);
+    let lines = po.lines;
+    if (fields.lineGst) {
+      lines = po.lines.map((l) => {
+        const own = fields.lineGst[`${l.prId}::${l.lineId}`];
+        const want = own === undefined || own === null ? null : Number(own) || 0;
+        const had = lineHasOwnGst(l) ? Number(l.gstPct) || 0 : null;
+        if (want === had) return l;
+        changed.push(`GST rate on "${l.itemName}" (${had === null ? "order rate" : `${had}%`} → ${want === null ? "order rate" : `${want}%`})`);
+        return { ...l, gstPct: want };
+      });
+    }
     if (!changed.length) return po;
     const signed = Object.values(po.signatures || {}).filter(Boolean).length;
     const next = {
-      ...po, ...patch,
+      ...po, ...patch, lines,
       signatures: signed ? { vp: null, president: null, purchaseManager: null } : po.signatures,
       editedBy: whoLabel, editedAt: nowStamp(),
     };
     setPos((prev) => prev.map((p) => p.id === poId ? next : p));
-    logAudit(`${poId} edited by ${whoLabel}: ${changed.map((k) => PO_EDITABLE[k]).join(", ")} changed.${signed ? ` ${signed} signature(s) cleared — PO must be re-signed.` : ""}`);
+    logAudit(`${poId} edited by ${whoLabel}: ${changed.join(", ")} changed.${signed ? ` ${signed} signature(s) cleared — PO must be re-signed.` : ""}`);
     return next;
   }
 

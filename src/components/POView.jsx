@@ -1,6 +1,7 @@
+import { Fragment } from "react";
 import { createPortal } from "react-dom";
 import { C, btnStyle } from "../theme.js";
-import { COMPANY, COMPANY_BLOCK, fmtDateShort, fmtMoney, fmtSigned, fmtQty, amountInWords, computePOTotals } from "../utils/po.js";
+import { COMPANY, COMPANY_BLOCK, fmtDateShort, fmtMoney, fmtSigned, fmtQty, amountInWords, computePOTotals, lineGstPct } from "../utils/po.js";
 
 /* When printing, hide the whole app and show only the PO copy rendered into a body-level portal,
    so the document comes out on its own page(s) with nothing else around it. */
@@ -59,7 +60,9 @@ function Cell({ title, children, style, colSpan }) {
 /* ================= THE PRINTED DOCUMENT ================= */
 export function PODocument({ po }) {
   const t = computePOTotals(po);
-  const half = t.gstPct / 2;
+  // items at different GST rates get a GST Rate column, as on a Tally invoice
+  const gstCol = t.mixedRates;
+  const blanks = (n) => Array.from({ length: n }, (_, i) => <td key={`b${i}`} style={colCell} />);
   const dueOn = fmtDateShort(po.deliveryDate);
   const supplier = splitSupplier(po);
   // short orders get a taller items area so the voucher fills the sheet, as Tally's does
@@ -117,7 +120,9 @@ export function PODocument({ po }) {
       {/* goods */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: -1, tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: "5%" }} /><col style={{ width: "31%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} />
+          <col style={{ width: "5%" }} /><col style={{ width: gstCol ? "25%" : "31%" }} /><col style={{ width: "10%" }} />
+          {gstCol && <col style={{ width: "6%" }} />}
+          <col style={{ width: "10%" }} /><col style={{ width: "10%" }} />
           <col style={{ width: "9%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "13%" }} />
         </colgroup>
         <thead>
@@ -125,6 +130,7 @@ export function PODocument({ po }) {
             <th rowSpan={2} style={thStyle}>Sl<br />No.</th>
             <th rowSpan={2} style={thStyle}>Description of Goods</th>
             <th rowSpan={2} style={thStyle}>Due on</th>
+            {gstCol && <th rowSpan={2} style={thStyle}>GST<br />Rate</th>}
             <th colSpan={2} style={thStyle}>Quantity</th>
             <th rowSpan={2} style={thStyle}>Rate</th>
             <th rowSpan={2} style={thStyle}>per</th>
@@ -145,6 +151,7 @@ export function PODocument({ po }) {
                   {desc && <div style={{ fontStyle: "italic", paddingLeft: 14, textTransform: "uppercase" }}>{desc}</div>}
                 </td>
                 <td style={{ ...colCell, fontStyle: "italic", whiteSpace: "nowrap", paddingTop: i === 0 ? 8 : 3 }}>{dueOn}</td>
+                {gstCol && <td style={{ ...num, paddingTop: i === 0 ? 8 : 3 }}>{fmtPct(lineGstPct(l, po))} %</td>}
                 <td style={{ ...num, paddingTop: i === 0 ? 8 : 3 }}>{fmtQty(l.qty)} {unit}</td>
                 <td style={{ ...num, fontWeight: 800, paddingTop: i === 0 ? 8 : 3 }}>{fmtQty(l.qty)} {unit}</td>
                 <td style={{ ...num, paddingTop: i === 0 ? 8 : 3 }}>{fmtMoney(l.rate)}</td>
@@ -156,35 +163,35 @@ export function PODocument({ po }) {
           })}
 
           {/* summary rows sit in the Amount column, as on a Tally voucher */}
-          {(t.discount > 0 || t.gstPct > 0 || t.roundOff !== 0) && (
+          {(t.discount > 0 || t.taxes.length > 0 || t.roundOff !== 0) && (
             <tr>
-              <td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} />
+              {blanks(gstCol ? 9 : 8)}
               <td style={{ ...num, paddingTop: 10 }}>{fmtMoney(t.subtotal)}</td>
             </tr>
           )}
           {t.discount > 0 && (
-            <SummaryRow left="Less :" text="DISCOUNT" amount={fmtSigned(-t.discount)} />
+            <SummaryRow gstCol={gstCol} left="Less :" text="DISCOUNT" amount={fmtSigned(-t.discount)} />
           )}
-          {t.gstPct > 0 && t.gstType === "IGST" && (
-            <SummaryRow text={`IGST INPUT @ ${fmtPct(t.gstPct)}%`} rate={`${fmtPct(t.gstPct)} %`} amount={fmtMoney(t.igst)} />
-          )}
-          {t.gstPct > 0 && t.gstType !== "IGST" && (
-            <>
-              <SummaryRow text={`SGST INPUT @ ${fmtPct(half)}%`} rate={`${fmtPct(half)} %`} amount={fmtMoney(t.sgst)} />
-              <SummaryRow text={`CGST INPUT @ ${fmtPct(half)}%`} rate={`${fmtPct(half)} %`} amount={fmtMoney(t.cgst)} />
-            </>
-          )}
+          {t.taxes.map((x) => t.gstType === "IGST"
+            ? <SummaryRow key={x.pct} gstCol={gstCol} text={`IGST INPUT @ ${fmtPct(x.pct)}%`} rate={`${fmtPct(x.pct)} %`} amount={fmtMoney(x.igst)} />
+            : (
+              <Fragment key={x.pct}>
+                <SummaryRow gstCol={gstCol} text={`SGST INPUT @ ${fmtPct(x.pct / 2)}%`} rate={`${fmtPct(x.pct / 2)} %`} amount={fmtMoney(x.sgst)} />
+                <SummaryRow gstCol={gstCol} text={`CGST INPUT @ ${fmtPct(x.pct / 2)}%`} rate={`${fmtPct(x.pct / 2)} %`} amount={fmtMoney(x.cgst)} />
+              </Fragment>
+            ))}
           {t.roundOff !== 0 && (
-            <SummaryRow left={t.roundOff < 0 ? "Less :" : "Add :"} text="ROUND OFF" amount={fmtSigned(t.roundOff)} />
+            <SummaryRow gstCol={gstCol} left={t.roundOff < 0 ? "Less :" : "Add :"} text="ROUND OFF" amount={fmtSigned(t.roundOff)} />
           )}
           {/* breathing room before the total, like the printed voucher */}
           <tr>
-            <td style={{ ...colCell, height: spacer }} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} /><td style={colCell} />
+            <td style={{ ...colCell, height: spacer }} />{blanks(gstCol ? 9 : 8)}
           </tr>
           <tr style={{ fontWeight: 800 }}>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
             <td style={{ ...colCell, borderTop: B, borderBottom: B, textAlign: "right", fontWeight: 400 }}>Total</td>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
+            {gstCol && <td style={{ ...colCell, borderTop: B, borderBottom: B }} />}
             <td style={{ ...num, borderTop: B, borderBottom: B }}>{fmtQty(t.qtyTotal)} {unitLabel(po)}</td>
             <td style={{ ...num, borderTop: B, borderBottom: B }}>{fmtQty(t.qtyTotal)} {unitLabel(po)}</td>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
@@ -250,7 +257,7 @@ export function PODocument({ po }) {
   );
 }
 
-function SummaryRow({ left, text, rate, amount }) {
+function SummaryRow({ left, text, rate, amount, gstCol }) {
   return (
     <tr>
       <td style={colCell} />
@@ -260,7 +267,7 @@ function SummaryRow({ left, text, rate, amount }) {
           <span style={{ fontStyle: "italic", fontWeight: 700 }}>{text}</span>
         </div>
       </td>
-      <td style={colCell} /><td style={colCell} /><td style={colCell} />
+      <td style={colCell} />{gstCol && <td style={colCell} />}<td style={colCell} /><td style={colCell} />
       <td style={{ ...num, fontStyle: "italic" }}>{rate || ""}</td>
       <td style={colCell} /><td style={colCell} />
       <td style={{ ...num, fontWeight: 700 }}>{amount}</td>

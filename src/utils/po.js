@@ -93,22 +93,53 @@ export function computeTransport(t) {
   return { amount, gstPct, gstType, cgst, sgst, igst, gst, total: round2(amount + gst) };
 }
 
-/* Subtotal, overall discount, GST split and rounding for a PO. Old POs without discount/GST fields
-   simply produce zeros for those rows. */
+/* A line's own GST rate when it has one, else the rate of the whole order. */
+export function lineHasOwnGst(line) {
+  return line?.gstPct !== undefined && line?.gstPct !== null && line?.gstPct !== "";
+}
+export function lineGstPct(line, po) {
+  return lineHasOwnGst(line) ? Number(line.gstPct) || 0 : Number(po?.gstPct) || 0;
+}
+
+const lineAmount = (l) => Number(l.amount) || (Number(l.qty) || 0) * (Number(l.rate) || 0);
+
+/* Subtotal, overall discount, GST and rounding for a PO. Each line is taxed at its own rate (or the
+   order's); `taxes` holds one entry per non-zero rate, highest first, with the order discount shared
+   across the rates in proportion. Old POs without discount/GST fields simply produce zeros. */
 export function computePOTotals(po) {
   const lines = po.lines || [];
-  const subtotal = round2(lines.reduce((s, l) => s + (Number(l.amount) || (Number(l.qty) || 0) * (Number(l.rate) || 0)), 0));
+  const subtotal = round2(lines.reduce((s, l) => s + lineAmount(l), 0));
   const discountPct = Number(po.discountPct) || 0;
   const discount = round2(subtotal * discountPct / 100);
   const taxable = round2(subtotal - discount);
   const gstPct = Number(po.gstPct) || 0;
   const gstType = po.gstType === "IGST" ? "IGST" : "CGST_SGST";
-  const { cgst, sgst, igst } = splitGst(taxable, gstPct, gstType);
-  const gross = round2(taxable + cgst + sgst + igst);
+
+  const byRate = new Map();
+  lines.forEach((l) => { const r = lineGstPct(l, po); byRate.set(r, (byRate.get(r) || 0) + lineAmount(l)); });
+  const groups = [...byRate.entries()].map(([pct, base]) => [pct, round2(base)]).sort((a, b) => b[0] - a[0]);
+  let discountLeft = discount;
+  const taxes = [];
+  groups.forEach(([pct, base], i) => {
+    // the last rate takes whatever discount is left, so the shares add up to the order discount exactly
+    const share = i === groups.length - 1 ? discountLeft : round2(base * discountPct / 100);
+    discountLeft = round2(discountLeft - share);
+    if (pct <= 0) return;
+    const groupTaxable = round2(base - share);
+    taxes.push({ pct, taxable: groupTaxable, ...splitGst(groupTaxable, pct, gstType) });
+  });
+  const cgst = round2(taxes.reduce((s, x) => s + x.cgst, 0));
+  const sgst = round2(taxes.reduce((s, x) => s + x.sgst, 0));
+  const igst = round2(taxes.reduce((s, x) => s + x.igst, 0));
+  const gst = round2(cgst + sgst + igst);
+
+  const gross = round2(taxable + gst);
   const total = Math.round(gross);
   const roundOff = round2(total - gross);
   const qtyTotal = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-  return { subtotal, discountPct, discount, taxable, gstPct, gstType, cgst, sgst, igst, gross, total, roundOff, qtyTotal };
+  // the printed PO adds a GST column only when the items are not all at one rate
+  const mixedRates = groups.length > 1;
+  return { subtotal, discountPct, discount, taxable, gstPct, gstType, taxes, cgst, sgst, igst, gst, gross, total, roundOff, qtyTotal, mixedRates };
 }
 
 /* A PO is locked against any edit, by anyone, once goods have been received against it. */
