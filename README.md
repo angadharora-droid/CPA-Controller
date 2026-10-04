@@ -22,7 +22,7 @@ On first run the server seeds MongoDB with the user accounts below and an empty 
 | `arjun`        | `President@2026`   | President          | Budget Review & Freeze, President's 2nd Approval           |
 | `depthead`     | `Dept@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition       |
 | `ravisharma`   | `Ravi@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition — Ravi Sharma |
-| `purchase`     | `Purchase@2026`    | Purchase Manager   | Rate negotiation (down only), mark lines Ready for PO, Issue PO, Delivery Calendar |
+| `purchase`     | `Purchase@2026`    | Purchase Manager   | Set buying rate (up or down), mark lines Ready for PO, Issue PO, Delivery Calendar |
 | `store`        | `Store@2026`       | Store Manager      | Delivery Calendar, Receive Material (GRN)                  |
 | `shashank`     | `Shashank@2026`    | Viewer (view-only) | Every screen, read-only — Shashank Kapley                  |
 
@@ -82,7 +82,7 @@ Rows with an unrecognised Cost Head are shown but cannot be imported.
 - A PR line is **Good to Approve** when brand, model/specs, rate (within the tolerance, default 5%) and quantity all match the frozen item; anything else lands on the VP's **Exception Desk**.
 - Lines whose rate variance exceeds the second-approval threshold (default 15%), and every unlisted item, need the **President's 2nd Approval** after the VP.
 - Both thresholds are editable by the VP/President under Admin Settings on the Budget Review & Freeze screen and are stored in MongoDB.
-- The Purchase Manager may only negotiate a rate **down**.
+- The Purchase Manager sets the buying rate, lower or higher than the approved rate. A rate above the approved one is allowed but flagged in red on the Purchase Manager and Issue PO screens and written to the audit trail. Once the PO is issued its rates are fixed.
 
 ## Production
 

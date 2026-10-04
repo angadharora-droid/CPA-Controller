@@ -466,19 +466,23 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const ln = getLine(prId, lineId);
     if (!ln) return;
     const n = Number(negotiatedRate);
-    if (isNaN(n) || n <= 0 || n > ln.finalRate) {
-      logAudit(`Purchase Manager attempted to set a rate above the approved rate for "${ln.itemName}" — rejected by system (PM may only reduce price).`);
-      return;
-    }
+    if (isNaN(n) || n <= 0) return;
+    /* The PM sets the rate actually being paid, up or down. A rate above the VP-approved one goes
+       through but is flagged on the line and in the audit trail. */
+    const was = ln.pmRate || ln.finalRate;
+    if (n === Number(was)) return;
     updateLine(prId, lineId, { pmRate: n });
-    logAudit(`Purchase Manager negotiated "${ln.itemName}" down to ${fmtINR(n)} (from ${fmtINR(ln.finalRate)}).`);
+    const vsApproved = n > ln.finalRate ? ` — ABOVE the approved rate of ${fmtINR(ln.finalRate)} by ${fmtINR(n - ln.finalRate)}`
+      : n < ln.finalRate ? ` (approved rate ${fmtINR(ln.finalRate)})` : " (back to the approved rate)";
+    logAudit(`Purchase Manager changed the rate of "${ln.itemName}" (${prId}) from ${fmtINR(was)} to ${fmtINR(n)}${vsApproved}.`);
   }
 
   function pmMarkReady(prId, lineId) {
     const ln = getLine(prId, lineId);
     if (!ln) return;
     updateLine(prId, lineId, { status: "Ready for PO" });
-    logAudit(`"${ln.itemName}" (${prId}) marked Ready for PO by Purchase Manager at ${fmtINR(ln.pmRate || ln.finalRate)}.`);
+    const rate = ln.pmRate || ln.finalRate;
+    logAudit(`"${ln.itemName}" (${prId}) marked Ready for PO by Purchase Manager at ${fmtINR(rate)}${rate > ln.finalRate ? ` (above the approved rate of ${fmtINR(ln.finalRate)})` : ""}.`);
   }
 
   /* ---------- PO / delivery / GRN actions ---------- */

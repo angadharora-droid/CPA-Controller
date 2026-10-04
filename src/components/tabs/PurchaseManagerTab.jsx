@@ -13,7 +13,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>You may negotiate the rate down (never up). Once a line is marked Ready for PO, use Edit to change its negotiated rate — until its PO is issued. Quantity and specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. Once a line is marked Ready for PO, use Edit to change its rate — until its PO is issued. Quantity and specs are locked at this stage.</div>
       {relevantPrs.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PR no., item, head, vendor, status…" /></div>}
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.length > 0 && !relevantPrs.some((pr) => shown(pr).length) && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No lines match "{query.trim()}".</div>}
@@ -54,8 +54,9 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady, readOnly }) {
     if (n === Number(current)) return;
     pmSetRate(pr.id, ln.lineId, rate);
     // pmSetRate refuses these, so show the rate that is still in force
-    if (isNaN(n) || n <= 0 || n > ln.finalRate) setRate(current);
+    if (isNaN(n) || n <= 0) setRate(current);
   }
+  const above = Number(current) > Number(ln.finalRate);
   function save() { commit(); setEditing(false); }
   function cancel() { setRate(current); setEditing(false); }
   const smallBtn = { fontSize: 11, padding: "4px 10px" };
@@ -71,7 +72,7 @@ function PMLineRow({ pr, ln, pmSetRate, pmMarkReady, readOnly }) {
           : <input type="number" value={rate} autoFocus={ready} onChange={(e) => setRate(e.target.value)} onBlur={ready ? undefined : commit}
               onKeyDown={ready ? (e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); } : undefined}
               style={{ ...cellInput, width: 80 }} />}
-        {ready && editing && <div style={{ fontSize: 10.5, color: "#9AA1AC", marginTop: 2 }}>max {fmtINR(ln.finalRate)}</div>}
+        {above && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, marginTop: 2 }}>Above approved by {fmtINR(current - ln.finalRate)}</div>}
       </td>
       <td style={{ padding: "6px 10px" }}><Badge bg={ready ? "#E9F6EF" : "#EAF0FB"} fg={ready ? C.green : C.blue}>{ln.status}</Badge></td>
       <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>

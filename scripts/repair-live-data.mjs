@@ -55,7 +55,7 @@ prs.forEach((pr) => pr.lines.forEach((l) => {
   if (!onPO(l)) return;
   const on = poLine.get(l.lineId);
   const { po, pl } = on.find((x) => x.po.id === l.poId) || on[on.length - 1]; // the PO it already points to, else the latest
-  const pmRate = Number(pl.rate) > 0 && Number(pl.rate) < Number(l.finalRate) ? Number(pl.rate) : l.pmRate;
+  const pmRate = Number(pl.rate) > 0 && Number(pl.rate) !== Number(l.finalRate) ? Number(pl.rate) : l.pmRate;
   const want = { status: "PO Issued", poId: po.id, vpDecision: approved(l) ? l.vpDecision : "Approved", presidentDecision: l.presidentDecision === "Pending" ? "Approved" : l.presidentDecision, pmRate, qtyReceived: on.reduce((t, x) => t + (Number(x.pl.qtyReceived) || 0), 0) };
   if (Object.keys(want).every((k) => (l[k] ?? null) === (want[k] ?? null))) return;
   restores.push({ id: l.lineId, item: l.itemName, was: l.status, po: po.id });
