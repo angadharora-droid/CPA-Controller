@@ -130,7 +130,8 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{desc || "—"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{l.vendorDetails || "—"}</td>
                     <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(l.finalQty)}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(rate)}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(rate)}
+                      {rate > l.finalRate && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600 }}>Above approved {fmtINR(l.finalRate)}</div>}</td>
                     <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(l.finalQty * rate)}</td>
                   </tr>
                 );
