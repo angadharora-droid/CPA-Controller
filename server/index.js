@@ -53,6 +53,7 @@ const SEED_USERS = [
   { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
   { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
   { userId: "ravisharma", password: "Ravi@2026", name: "Ravi Sharma", role: "Department Head", title: "Department Head — Requisitions" },
+  { userId: "sunil", password: "Sunil@2026", name: "Sunil", role: "Department Head", title: "Department Head — Requisitions" },
   { userId: "shashank", password: "Shashank@2026", name: "Shashank Kapley", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
 ];
 
