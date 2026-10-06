@@ -23,7 +23,7 @@ On first run the server seeds MongoDB with the user accounts below and an empty 
 | `depthead`     | `Dept@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition       |
 | `ravisharma`   | `Ravi@2026`        | Department Head    | Approved & Pending Items, Raise Purchase Requisition — Ravi Sharma |
 | `sunil`        | `Sunil@2026`       | Department Head    | Approved & Pending Items, Raise Purchase Requisition — Sunil |
-| `purchase`     | `Purchase@2026`    | Purchase Manager   | Set buying rate (up or down), mark lines Ready for PO, Issue PO, Delivery Calendar |
+| `purchase`     | `Purchase@2026`    | Purchase Manager   | Set buying rate (up or down), lower quantity, mark lines Ready for PO, Issue PO, Delivery Calendar |
 | `store`        | `Store@2026`       | Store Manager      | Delivery Calendar, Receive Material (GRN)                  |
 | `shashank`     | `Shashank@2026`    | Viewer (view-only) | Every screen, read-only — Shashank Kapley                  |
 
@@ -84,6 +84,7 @@ Rows with an unrecognised Cost Head are shown but cannot be imported.
 - Lines whose rate variance exceeds the second-approval threshold (default 15%), and every unlisted item, need the **President's 2nd Approval** after the VP.
 - Both thresholds are editable by the VP/President under Admin Settings on the Budget Review & Freeze screen and are stored in MongoDB.
 - The Purchase Manager sets the buying rate, lower or higher than the approved rate. A rate above the approved one is allowed but flagged in red on the Purchase Manager and Issue PO screens and written to the audit trail. After the PO is issued the rates can still be changed from Edit on the Issue PO tab (same flag and audit entry; the new rate is copied back to the requisition line and any signatures are cleared), until goods are received against it.
+- The Purchase Manager can also lower a line's quantity (never raise it), on the Purchase Manager tab before the PO or from Edit on the Issue PO tab after it, until goods are received. The cut is confirmed first, the units not bought go back to the item's approved balance (so a new requisition can use them), and the audit trail records it. The VP's own figure is kept on the line as `vpQty`.
 
 ## Production
 
