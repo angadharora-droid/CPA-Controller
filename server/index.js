@@ -47,7 +47,7 @@ let store;
 
 /* ---------- first-run seeding ---------- */
 const SEED_USERS = [
-  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Khandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
+  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Kandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
   { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
   { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
   { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
@@ -119,6 +119,9 @@ async function migrateUsers() {
   // Retire the separate VP-only login that the merged account replaces.
   const retired = await User.deleteOne({ userId: "amit" });
   if (retired.deletedCount) console.log('Removed the retired "amit" login (merged into "amitkhandwal").');
+  // Name spelling corrected to "Amit Kandwal" (the login ID stays "amitkhandwal").
+  const renamed = await User.updateOne({ userId: "amitkhandwal", name: "Amit Khandwal" }, { $set: { name: gm.name } });
+  if (renamed.modifiedCount) console.log(`Renamed the "amitkhandwal" account to "${gm.name}".`);
 
   // The Purchase Executive role was merged into Purchase Manager: one person negotiates rates, issues POs
   // and signs them. Retire the separate "purchaseexec" login and fold any remaining account carrying the
