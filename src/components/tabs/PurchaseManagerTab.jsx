@@ -13,7 +13,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmMarkReady, cardSt
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. Once a line is marked Ready for PO, use Edit to change its rate — until its PO is issued. Quantity and specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. Once a line is marked Ready for PO, use Edit to change its rate; after its PO is issued, change the rate with Edit on the Issue PO tab (until goods are received). Quantity and specs are locked at this stage.</div>
       {relevantPrs.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PR no., item, head, vendor, status…" /></div>}
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.length > 0 && !relevantPrs.some((pr) => shown(pr).length) && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No lines match "{query.trim()}".</div>}

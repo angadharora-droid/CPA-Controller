@@ -83,7 +83,7 @@ Rows with an unrecognised Cost Head are shown but cannot be imported.
 - A PR line is **Good to Approve** when brand, model/specs, rate (within the tolerance, default 5%) and quantity all match the frozen item; anything else lands on the VP's **Exception Desk**.
 - Lines whose rate variance exceeds the second-approval threshold (default 15%), and every unlisted item, need the **President's 2nd Approval** after the VP.
 - Both thresholds are editable by the VP/President under Admin Settings on the Budget Review & Freeze screen and are stored in MongoDB.
-- The Purchase Manager sets the buying rate, lower or higher than the approved rate. A rate above the approved one is allowed but flagged in red on the Purchase Manager and Issue PO screens and written to the audit trail. Once the PO is issued its rates are fixed.
+- The Purchase Manager sets the buying rate, lower or higher than the approved rate. A rate above the approved one is allowed but flagged in red on the Purchase Manager and Issue PO screens and written to the audit trail. After the PO is issued the rates can still be changed from Edit on the Issue PO tab (same flag and audit entry; the new rate is copied back to the requisition line and any signatures are cleared), until goods are received against it.
 
 ## Production
 
