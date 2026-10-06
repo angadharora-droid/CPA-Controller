@@ -525,11 +525,13 @@ export default function BudgetApp({ currentUser, onLogout }) {
     return po;
   }
 
-  /* Correct the header of an issued PO (supplier, voucher details, discount, GST) and the GST rate of
-     single items (`fields.lineGst`, keyed "prId::lineId"; an item left out follows the order's rate).
-     Quantities and rates are left alone: they are as approved. Any signatures were given on the old
-     content, so a real change clears them and the PO has to be signed again. Once goods have been
-     received against the PO it is locked: nobody, admin included, can edit it. */
+  /* Correct the header of an issued PO (supplier, voucher details, discount, GST), the GST rate of
+     single items (`fields.lineGst`, keyed "prId::lineId"; an item left out follows the order's rate)
+     and the rate of single items (`fields.lineRate`, same keys). A new rate is copied back to the
+     requisition line as its PM rate; like on the Purchase Manager tab it may go above the approved
+     rate, flagged in the audit trail. Quantities stay as approved. Any signatures were given on the
+     old content, so a real change clears them and the PO has to be signed again. Once goods have
+     been received against the PO it is locked: nobody, admin included, can edit it. */
   function updatePO(poId, fields) {
     const po = pos.find((p) => p.id === poId);
     if (!po) return null;
@@ -550,13 +552,27 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const changed = Object.keys(patch).filter((k) => patch[k] !== current(k)).map((k) => PO_EDITABLE[k]);
     let lines = po.lines;
     if (fields.lineGst) {
-      lines = po.lines.map((l) => {
+      lines = lines.map((l) => {
         const own = fields.lineGst[`${l.prId}::${l.lineId}`];
         const want = own === undefined || own === null ? null : Number(own) || 0;
         const had = lineHasOwnGst(l) ? Number(l.gstPct) || 0 : null;
         if (want === had) return l;
         changed.push(`GST rate on "${l.itemName}" (${had === null ? "order rate" : `${had}%`} → ${want === null ? "order rate" : `${want}%`})`);
         return { ...l, gstPct: want };
+      });
+    }
+    const rateChanges = [];
+    if (fields.lineRate) {
+      lines = lines.map((l) => {
+        const n = Number(fields.lineRate[`${l.prId}::${l.lineId}`]);
+        // a missing or non-positive rate leaves the item as it was
+        if (isNaN(n) || n <= 0 || n === Number(l.rate)) return l;
+        const approved = Number(getLine(l.prId, l.lineId)?.finalRate) || 0;
+        const vsApproved = !approved ? "" : n > approved ? ` — ABOVE the approved rate of ${fmtINR(approved)} by ${fmtINR(n - approved)}`
+          : n < approved ? ` (approved rate ${fmtINR(approved)})` : " (back to the approved rate)";
+        changed.push(`rate of "${l.itemName}" (${fmtINR(l.rate)} → ${fmtINR(n)}${vsApproved})`);
+        rateChanges.push({ prId: l.prId, lineId: l.lineId, rate: n });
+        return { ...l, rate: n, amount: (Number(l.qty) || 0) * n };
       });
     }
     if (!changed.length) return po;
@@ -567,6 +583,8 @@ export default function BudgetApp({ currentUser, onLogout }) {
       editedBy: whoLabel, editedAt: nowStamp(),
     };
     setPos((prev) => prev.map((p) => p.id === poId ? next : p));
+    // the pipeline values a line at its PM rate, so keep it equal to what the PO now says
+    rateChanges.forEach(({ prId, lineId, rate }) => updateLine(prId, lineId, { pmRate: rate }));
     logAudit(`${poId} edited by ${whoLabel}: ${changed.join(", ")} changed.${signed ? ` ${signed} signature(s) cleared — PO must be re-signed.` : ""}`);
     return next;
   }
