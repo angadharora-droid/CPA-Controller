@@ -2,8 +2,9 @@ import React, { useState, useMemo, useCallback } from "react";
 import { BASE_HEADS } from "./data/heads.js";
 import { api } from "./api.js";
 import { createStateSync } from "./sync.js";
-import { fmtINR, fmtNum, nowStamp, uid, padNum } from "./utils/format.js";
+import { fmtINR, fmtNum, fmtRate, round2, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
+import { unitOf } from "./utils/units.js";
 import { todayISO, computeTransport, poIsLocked, lineHasOwnGst } from "./utils/po.js";
 import { C } from "./theme.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
@@ -360,6 +361,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         headName: item ? item.head : ln.unbudgetedHead,
         requestedQty: Number(ln.requestedQty) || 0,
         requestedRate: Number(ln.requestedRate) || 0,
+        unit: unitOf(null, item),
         approvedQty: item ? item.qty : null,
         approvedRate: item ? item.rate : null,
         approvedBrand: item ? item.brand : null,
@@ -472,9 +474,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const was = ln.pmRate || ln.finalRate;
     if (n === Number(was)) return;
     updateLine(prId, lineId, { pmRate: n });
-    const vsApproved = n > ln.finalRate ? ` — ABOVE the approved rate of ${fmtINR(ln.finalRate)} by ${fmtINR(n - ln.finalRate)}`
-      : n < ln.finalRate ? ` (approved rate ${fmtINR(ln.finalRate)})` : " (back to the approved rate)";
-    logAudit(`Purchase Manager changed the rate of "${ln.itemName}" (${prId}) from ${fmtINR(was)} to ${fmtINR(n)}${vsApproved}.`);
+    const vsApproved = n > ln.finalRate ? ` — ABOVE the approved rate of ${fmtRate(ln.finalRate)} by ${fmtRate(n - ln.finalRate)}`
+      : n < ln.finalRate ? ` (approved rate ${fmtRate(ln.finalRate)})` : " (back to the approved rate)";
+    logAudit(`Purchase Manager changed the rate of "${ln.itemName}" (${prId}) from ${fmtRate(was)} to ${fmtRate(n)}${vsApproved}.`);
   }
 
   /* What cutting a requisition line to `n` means, or null when `n` is not a cut. The Purchase
@@ -484,7 +486,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     if (isNaN(n) || n <= 0 || n >= was) return null;
     const cut = was - n;
     const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
-    const unit = (item && item.unit) || "Nos";
+    const unit = unitOf(ln, item);
     return {
       was, n, cut, unit, itemId: item ? item.id : null,
       released: item ? `${fmtNum(cut)} ${unit} back to the item's approved balance` : `${fmtINR(cut * ln.finalRate)} back to the "${ln.headName}" budget head`,
@@ -515,12 +517,84 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`Purchase Manager reduced the quantity of "${ln.itemName}" (${prId}) from ${fmtNum(c.was)} to ${fmtNum(c.n)} ${c.unit} — ${c.released}.`);
   }
 
+  /* A budget item counts in one unit, so its unit can change only while no PO carries the item in
+     the old one: a PO goes out to the supplier as printed. The line itself, on the PO being edited,
+     doesn't count. The reason it can't, or null when it can. */
+  function unitChangeBlock(ln) {
+    if (!ln || !ln.itemId) return null;
+    const onPOs = [...new Set(allLines.filter((l) => l.itemId === ln.itemId && l.poId && l.lineId !== ln.lineId).map((l) => l.poId))];
+    if (!onPOs.length) return null;
+    return `"${ln.itemName}" is already on ${onPOs.join(", ")} in ${unitOf(ln, items.find((i) => i.id === ln.itemId))}, so its unit can't change now.`;
+  }
+  const unitBlock = (prId, lineId) => unitChangeBlock(getLine(prId, lineId));
+
+  /* Some things are bought by length or weight, not by the piece: curtain cloth goes by the metre.
+     The Purchase Manager picks the unit and types the quantity in it. That fixes the ratio (10 Nos →
+     150 Mtr is 15 Mtr to the Nos); the amount stays what it was, so every rate is divided by the
+     same ratio. What changing `ln` to `to` at quantity `qty` means, or null when it is no change. */
+  function unitChange(ln, to, qty) {
+    const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
+    const from = unitOf(ln, item);
+    const was = Number(ln.finalQty) || 0;
+    const n = Number(qty);
+    if (!to || to === from || isNaN(n) || n <= 0 || was <= 0) return null;
+    return { from, to, was, n, f: n / was, rate: ln.pmRate || ln.finalRate, itemId: item ? item.id : null };
+  }
+
+  /* Apply it. The budget item (approved quantity, balance, rate, committed quantity) and every
+     requisition line for it convert along with this one, so balances stay in one unit; no value
+     moves. An unbudgeted line has only itself to convert. The line keeps what it was as unitWas. */
+  function applyUnitChange(prId, ln, u) {
+    const q = (v) => (typeof v === "number" ? Math.round(v * u.f * 1000) / 1000 : v);
+    const r = (v) => (typeof v === "number" ? v / u.f : v);
+    const isThis = (pr, l) => pr.id === prId && l.lineId === ln.lineId;
+    const touches = (pr, l) => isThis(pr, l) || (u.itemId && l.itemId === u.itemId);
+    setPrs((prev) => prev.map((pr) => !pr.lines.some((l) => touches(pr, l)) ? pr : {
+      ...pr,
+      lines: pr.lines.map((l) => {
+        if (!touches(pr, l)) return l;
+        const next = {
+          ...l, unit: u.to,
+          requestedQty: q(l.requestedQty), requestedRate: r(l.requestedRate),
+          approvedQty: q(l.approvedQty), approvedRate: r(l.approvedRate),
+          finalQty: q(l.finalQty), finalRate: r(l.finalRate), pmRate: r(l.pmRate),
+          vpQty: q(l.vpQty), qtyReceived: q(l.qtyReceived),
+        };
+        if (!isThis(pr, l)) return next;
+        // changed back to the unit it started in: nothing left to show
+        const unitWas = l.unitWas ? (l.unitWas.unit === u.to ? undefined : l.unitWas) : { unit: u.from, qty: u.was };
+        return { ...next, finalQty: u.n, unitWas };
+      }),
+    }));
+    if (u.itemId) {
+      setItems((prev) => prev.map((it) => it.id !== u.itemId ? it : {
+        ...it, unit: u.to, qty: q(it.qty), bal: q(it.bal), stock: q(it.stock), rate: r(it.rate), committedQty: q(it.committedQty),
+      }));
+    }
+  }
+
+  /* "from Nos to Mtr: 10 Nos → 150 Mtr, rate ₹2,000 per Nos → ₹133.33 per Mtr, amount unchanged at ₹20,000; …" */
+  function unitNote(u) {
+    return `from ${u.from} to ${u.to}: ${fmtNum(u.was)} ${u.from} → ${fmtNum(u.n)} ${u.to}, rate ${fmtRate(u.rate)} per ${u.from} → ${fmtRate(u.rate / u.f)} per ${u.to}, amount unchanged at ${fmtINR(u.was * u.rate)}`
+      + (u.itemId ? `; the budget item and its other requisitions now count in ${u.to} too (1 ${u.from} = ${fmtNum(u.f)} ${u.to})` : "");
+  }
+
+  /* Before the PO, like a quantity cut; once a line is on a PO its unit is changed through Edit PO. */
+  function pmSetUnit(prId, lineId, unit, qty) {
+    const ln = getLine(prId, lineId);
+    if (!ln || (ln.status !== "Pending Purchase Manager" && ln.status !== "Ready for PO") || unitChangeBlock(ln)) return;
+    const u = unitChange(ln, unit, qty);
+    if (!u) return;
+    applyUnitChange(prId, ln, u);
+    logAudit(`Purchase Manager changed the unit of "${ln.itemName}" (${prId}) ${unitNote(u)}.`);
+  }
+
   function pmMarkReady(prId, lineId) {
     const ln = getLine(prId, lineId);
     if (!ln) return;
     updateLine(prId, lineId, { status: "Ready for PO" });
     const rate = ln.pmRate || ln.finalRate;
-    logAudit(`"${ln.itemName}" (${prId}) marked Ready for PO by Purchase Manager at ${fmtINR(rate)}${rate > ln.finalRate ? ` (above the approved rate of ${fmtINR(ln.finalRate)})` : ""}.`);
+    logAudit(`"${ln.itemName}" (${prId}) marked Ready for PO by Purchase Manager at ${fmtRate(rate)}${rate > ln.finalRate ? ` (above the approved rate of ${fmtRate(ln.finalRate)})` : ""}.`);
   }
 
   /* ---------- PO / delivery / GRN actions ---------- */
@@ -542,7 +616,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         // what was actually requisitioned, falling back to the approved budget line
         brand: ln.proposedBrand || (item && item.brand) || "",
         spec: ln.proposedModel || (item && item.spec) || "",
-        qty: ln.finalQty, rate, amount: ln.finalQty * rate, unit: (item && item.unit) || "Nos", qtyReceived: 0,
+        qty: ln.finalQty, rate, amount: ln.finalQty * rate, unit: unitOf(ln, item), qtyReceived: 0,
         // null: taxed at the order's GST rate
         gstPct: ownGst === undefined || ownGst === null ? null : Number(ownGst) || 0,
       };
@@ -568,7 +642,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
      and the rate of single items (`fields.lineRate`, same keys). A new rate is copied back to the
      requisition line as its PM rate; like on the Purchase Manager tab it may go above the approved
      rate, flagged in the audit trail. A quantity (`fields.lineQty`, same keys) can only come down:
-     the cut is copied back to the requisition line and released to the approved balance. Any
+     the cut is copied back to the requisition line and released to the approved balance — unless
+     the item is given a new unit (`fields.lineUnit`, same keys), when the quantity is the one in
+     that unit and the rate follows so the amount stays (see unitChange). Any
      signatures were given on the old content, so a real change clears them and the PO has to be
      signed again. Once goods have been received against the PO it is locked: nobody, admin
      included, can edit it. */
@@ -601,16 +677,34 @@ export default function BudgetApp({ currentUser, onLogout }) {
         return { ...l, gstPct: want };
       });
     }
+    // a new unit goes first: the quantity typed is in that unit, and the rate follows so the amount stays
+    const unitChanges = [];
+    const converted = new Set();
+    if (fields.lineUnit) {
+      lines = lines.map((l) => {
+        const key = `${l.prId}::${l.lineId}`;
+        const ln = getLine(l.prId, l.lineId);
+        const to = fields.lineUnit[key];
+        if (!ln || !to || to === (l.unit || "Nos") || unitChangeBlock(ln)) return l;
+        const u = unitChange(ln, to, fields.lineQty?.[key]);
+        if (!u) return l;
+        changed.push(`unit of "${l.itemName}" (${unitNote(u)})`);
+        unitChanges.push({ prId: l.prId, ln, u });
+        converted.add(key);
+        return { ...l, unit: u.to, qty: u.n, rate: (Number(l.rate) || 0) / u.f };
+      });
+    }
     const rateChanges = [];
     if (fields.lineRate) {
       lines = lines.map((l) => {
+        if (converted.has(`${l.prId}::${l.lineId}`)) return l;
         const n = Number(fields.lineRate[`${l.prId}::${l.lineId}`]);
-        // a missing or non-positive rate leaves the item as it was
-        if (isNaN(n) || n <= 0 || n === Number(l.rate)) return l;
+        // a missing or non-positive rate leaves the item as it was; the form shows rates to the paisa
+        if (isNaN(n) || n <= 0 || round2(n) === round2(l.rate)) return l;
         const approved = Number(getLine(l.prId, l.lineId)?.finalRate) || 0;
-        const vsApproved = !approved ? "" : n > approved ? ` — ABOVE the approved rate of ${fmtINR(approved)} by ${fmtINR(n - approved)}`
-          : n < approved ? ` (approved rate ${fmtINR(approved)})` : " (back to the approved rate)";
-        changed.push(`rate of "${l.itemName}" (${fmtINR(l.rate)} → ${fmtINR(n)}${vsApproved})`);
+        const vsApproved = !approved ? "" : n > approved ? ` — ABOVE the approved rate of ${fmtRate(approved)} by ${fmtRate(n - approved)}`
+          : n < approved ? ` (approved rate ${fmtRate(approved)})` : " (back to the approved rate)";
+        changed.push(`rate of "${l.itemName}" (${fmtRate(l.rate)} → ${fmtRate(n)}${vsApproved})`);
         rateChanges.push({ prId: l.prId, lineId: l.lineId, rate: n });
         return { ...l, rate: n, amount: (Number(l.qty) || 0) * n };
       });
@@ -618,6 +712,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     const qtyCuts = [];
     if (fields.lineQty) {
       lines = lines.map((l) => {
+        if (converted.has(`${l.prId}::${l.lineId}`)) return l;
         const ln = getLine(l.prId, l.lineId);
         const n = Number(fields.lineQty[`${l.prId}::${l.lineId}`]);
         // anything but a cut leaves the item as it was
@@ -637,6 +732,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     };
     setPos((prev) => prev.map((p) => p.id === poId ? next : p));
     // the pipeline values a line at its PM rate, so keep it equal to what the PO now says
+    unitChanges.forEach(({ prId, ln, u }) => applyUnitChange(prId, ln, u));
     rateChanges.forEach(({ prId, lineId, rate }) => updateLine(prId, lineId, { pmRate: rate }));
     qtyCuts.forEach(({ prId, ln, c }) => applyQtyCut(prId, ln, c));
     logAudit(`${poId} edited by ${whoLabel}: ${changed.join(", ")} changed.${signed ? ` ${signed} signature(s) cleared — PO must be re-signed.` : ""}`);
@@ -837,10 +933,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct, readOnly }} />
         )}
         {tab === "pmqueue" && (role === "Purchase Manager" || seesAllTabs) && (
-          <PurchaseManagerTab {...{ prs, pmSetRate, pmSetQty, pmMarkReady, cardStyle, readOnly }} />
+          <PurchaseManagerTab {...{ prs, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle, readOnly }} />
         )}
         {tab === "issuepo" && (role === "Purchase Manager" || seesAllTabs) && (
-          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, cardStyle, role, isAdmin, readOnly }} pos={posForView} />
+          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, unitBlock, cardStyle, role, isAdmin, readOnly }} pos={posForView} />
         )}
         {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || seesAllTabs) && (
           <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />

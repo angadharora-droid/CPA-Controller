@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { C, cellInput, btnStyle, toggleBtn } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { raisedLane } from "../../utils/classifyLine.js";
 import { Badge, SearchBox } from "../ui.jsx";
@@ -53,7 +53,7 @@ export default function VPDeskTab({ prs, items, vpDecideLine, cardStyle, toleran
 function VPLineRow({ pr, ln, lane, balance, vpDecideLine, readOnly }) {
   const [modifying, setModifying] = useState(false);
   const [mQty, setMQty] = useState(ln.requestedQty);
-  const [mRate, setMRate] = useState(ln.requestedRate);
+  const [mRate, setMRate] = useState(round2(ln.requestedRate));
   // follows the quantity being typed under Modify & Approve
   const qtyToApprove = modifying ? Number(mQty) || 0 : ln.requestedQty;
   const overBy = balance ? qtyToApprove - balance.left : 0;
@@ -76,7 +76,7 @@ function VPLineRow({ pr, ln, lane, balance, vpDecideLine, readOnly }) {
             </tr>
             <tr style={{ fontWeight: 600 }}>
               <td>{fmtNum(ln.requestedQty)} / {ln.approvedQty !== null ? fmtNum(ln.approvedQty) : "—"}</td>
-              <td>{fmtINR(ln.requestedRate)} / {fmtINR(ln.approvedRate)}{ln.variancePct !== null ? ` (${ln.variancePct >= 0 ? "+" : ""}${ln.variancePct.toFixed(2)}%)` : ""}</td>
+              <td>{fmtRate(ln.requestedRate)} / {fmtRate(ln.approvedRate)}{ln.variancePct !== null ? ` (${ln.variancePct >= 0 ? "+" : ""}${ln.variancePct.toFixed(2)}%)` : ""}</td>
               <td>{ln.proposedBrand || "—"} / {ln.approvedBrand || "—"}</td>
               <td>{ln.proposedModel || "—"} / {ln.approvedModel || "—"}</td>
             </tr>

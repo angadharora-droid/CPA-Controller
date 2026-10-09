@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { C, btnStyle } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { SearchBox } from "../ui.jsx";
 
@@ -30,7 +30,7 @@ export default function PresidentSecondApprovalTab({ prs, presidentDecideLine, c
                 <div style={{ fontWeight: 800, color: C.red, fontSize: 14 }}>
                   {ln.itemId ? `Rate variance ${ln.variancePct !== null ? ln.variancePct.toFixed(2) : "—"}% exceeds ${secondApprovalPct}%` : "Unbudgeted item"}
                 </div>
-                <div style={{ fontSize: 12.5, marginTop: 4 }}>{ln.itemName} ({ln.headName}) — VP {ln.vpDecision.toLowerCase()} {fmtNum(ln.finalQty)} @ {fmtINR(ln.finalRate)}{ln.approvedRate ? ` vs approved ${fmtINR(ln.approvedRate)}` : ""}.</div>
+                <div style={{ fontSize: 12.5, marginTop: 4 }}>{ln.itemName} ({ln.headName}) — VP {ln.vpDecision.toLowerCase()} {fmtNum(ln.finalQty)} @ {fmtRate(ln.finalRate)}{ln.approvedRate ? ` vs approved ${fmtRate(ln.approvedRate)}` : ""}.</div>
                 {(ln.proposedBrand || ln.proposedModel) && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>Brand: {ln.proposedBrand || "—"} · Model/Specs: {ln.proposedModel || "—"}</div>}
                 {!readOnly && (
                   <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>

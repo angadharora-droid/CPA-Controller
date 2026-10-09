@@ -192,8 +192,9 @@ export function PODocument({ po }) {
             <td style={{ ...colCell, borderTop: B, borderBottom: B, textAlign: "right", fontWeight: 400 }}>Total</td>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
             {gstCol && <td style={{ ...colCell, borderTop: B, borderBottom: B }} />}
-            <td style={{ ...num, borderTop: B, borderBottom: B }}>{fmtQty(t.qtyTotal)} {unitLabel(po)}</td>
-            <td style={{ ...num, borderTop: B, borderBottom: B }}>{fmtQty(t.qtyTotal)} {unitLabel(po)}</td>
+            {/* metres and pieces don't add up: the quantity is totalled only when every item has one unit */}
+            <td style={{ ...num, borderTop: B, borderBottom: B }}>{unitLabel(po) && `${fmtQty(t.qtyTotal)} ${unitLabel(po)}`}</td>
+            <td style={{ ...num, borderTop: B, borderBottom: B }}>{unitLabel(po) && `${fmtQty(t.qtyTotal)} ${unitLabel(po)}`}</td>
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />
             <td style={{ ...colCell, borderTop: B, borderBottom: B }} />

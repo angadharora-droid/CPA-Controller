@@ -111,8 +111,8 @@ export default function ReceiveGoodsTab({ pos, recordGRN, updateGRNTransport, gr
                 {po.lines.map((l) => (
                   <tr key={l.lineId} style={{ borderTop: "1px solid #F0EFEA" }}>
                     <td style={{ padding: "6px 10px", fontWeight: 600 }}>{l.itemName}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(l.qty)}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(l.qtyReceived || 0)}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(l.qty)} {l.unit || "Nos"}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(l.qtyReceived || 0)} {l.unit || "Nos"}</td>
                     <td style={{ padding: "6px 6px", textAlign: "right" }}>
                       <input type="number" min="0" value={qtys[l.lineId] || ""} onChange={(e) => setQtys((q) => ({ ...q, [l.lineId]: e.target.value }))} style={{ ...cellInput, width: 70 }} />
                     </td>

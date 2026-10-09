@@ -12,6 +12,14 @@ export function fmtINR(n) {
   }
   return (neg ? "-" : "") + "₹" + rest + last3;
 }
+/* A rate with its paise: one converted to a smaller unit rarely comes out whole (₹2,000 a piece is ₹133.33 a metre). */
+export function fmtRate(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  return (n < 0 ? "-" : "") + "₹" + Math.abs(Number(n)).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+export function round2(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
 export function fmtNum(n) {
   if (n === null || n === undefined || isNaN(n)) return "—";
   return Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 });

@@ -1,9 +1,10 @@
 import { Fragment, useState } from "react";
 import { C, th, thR, inputStyle, cellInput, btnStyle } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
 import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked, lineHasOwnGst } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
-import { Field, SearchBox, confirmQtyCut } from "../ui.jsx";
+import { unitOf } from "../../utils/units.js";
+import { Field, SearchBox, UnitSelect, confirmQtyCut, confirmUnitChange } from "../ui.jsx";
 import { GstRateField, GstTypeField, LineGstSelect, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
 
@@ -30,13 +31,14 @@ function formGstType(form) {
 
 /* The fields sent to issuePO / updatePO. */
 function formToFields(form) {
-  const { gstTypeManual, lineGst, lineRate, lineQty, ...rest } = form;
+  const { gstTypeManual, lineGst, lineRate, lineQty, lineUnit, ...rest } = form;
   const ownGst = {};
   Object.entries(lineGst || {}).forEach(([k, v]) => { if (v !== "" && v !== null && v !== undefined) ownGst[k] = Number(v) || 0; });
   const fields = { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form), lineGst: ownGst };
-  // only the edit form carries rates and quantities: a new PO takes both from the Purchase Manager tab
+  // only the edit form carries rates, quantities and units: a new PO takes them from the Purchase Manager tab
   if (lineRate) fields.lineRate = Object.fromEntries(Object.entries(lineRate).map(([k, v]) => [k, Number(v)]));
   if (lineQty) fields.lineQty = Object.fromEntries(Object.entries(lineQty).map(([k, v]) => [k, Number(v)]));
+  if (lineUnit) fields.lineUnit = { ...lineUnit };
   return fields;
 }
 
@@ -51,14 +53,17 @@ function formFromPO(po) {
   form.lineGst = {};
   po.lines.forEach((l) => { if (lineHasOwnGst(l)) form.lineGst[lineKey(l)] = String(Number(l.gstPct) || 0); });
   form.lineRate = {};
-  po.lines.forEach((l) => { form.lineRate[lineKey(l)] = String(Number(l.rate) || 0); });
+  // to the paisa: a rate converted to another unit carries more decimals than anyone types
+  po.lines.forEach((l) => { form.lineRate[lineKey(l)] = String(round2(Number(l.rate) || 0)); });
   form.lineQty = {};
   po.lines.forEach((l) => { form.lineQty[lineKey(l)] = String(Number(l.qty) || 0); });
+  form.lineUnit = {};
+  po.lines.forEach((l) => { form.lineUnit[lineKey(l)] = l.unit || "Nos"; });
   return form;
 }
 
 /* ================= ISSUE PO (Purchase Manager) ================= */
-export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, cardStyle, role, isAdmin, readOnly }) {
+export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBlock, pos, cardStyle, role, isAdmin, readOnly }) {
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
   const [form, setForm] = useState(BLANK_FORM);
@@ -102,12 +107,26 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
   }
   const editRate = (l) => Number(editForm.lineRate?.[lineKey(l)]);
   const editQty = (l) => Number(editForm.lineQty?.[lineKey(l)]);
-  const ratesOk = editPO && editPO.lines.every((l) => editRate(l) > 0);
+  const editUnit = (l) => editForm.lineUnit?.[lineKey(l)] || l.unit || "Nos";
+  // an item given a new unit: its quantity is the one in that unit, and its rate follows so the amount stays
+  const converting = (l) => editUnit(l) !== (l.unit || "Nos");
+  const ratesOk = editPO && editPO.lines.every((l) => converting(l) || editRate(l) > 0);
   // a quantity may come down, never go up
-  const qtysOk = editPO && editPO.lines.every((l) => editQty(l) > 0 && editQty(l) <= Number(l.qty));
-  const canSave = editPO && ratesOk && qtysOk && editForm.supplier.trim() && editForm.deliveryDate;
+  const qtysOk = editPO && editPO.lines.every((l) => converting(l) || (editQty(l) > 0 && editQty(l) <= Number(l.qty)));
+  const unitsOk = editPO && editPO.lines.every((l) => !converting(l) || editQty(l) > 0);
+  const canSave = editPO && ratesOk && qtysOk && unitsOk && editForm.supplier.trim() && editForm.deliveryDate;
+  function setEditUnit(l, unit) {
+    const key = lineKey(l);
+    // back to the PO's own unit restores its quantity; a new one waits for the quantity in it
+    setEditForm((f) => ({ ...f, lineUnit: { ...(f.lineUnit || {}), [key]: unit }, lineQty: { ...(f.lineQty || {}), [key]: unit === (l.unit || "Nos") ? String(l.qty) : "" } }));
+  }
   function handleSaveEdit() {
-    const cuts = editPO.lines.filter((l) => editQty(l) < Number(l.qty)).map((l) => ({ itemName: l.itemName, was: l.qty, n: editQty(l) }));
+    const units = editPO.lines.filter(converting).map((l) => ({
+      itemName: l.itemName, was: Number(l.qty), from: l.unit || "Nos", n: editQty(l), to: editUnit(l), rate: Number(l.rate),
+      onItem: !!allLines.find((x) => x.prId === l.prId && x.lineId === l.lineId)?.itemId,
+    }));
+    if (units.length && !confirmUnitChange(units)) return;
+    const cuts = editPO.lines.filter((l) => !converting(l) && editQty(l) < Number(l.qty)).map((l) => ({ itemName: l.itemName, was: l.qty, n: editQty(l) }));
     if (cuts.length && !confirmQtyCut(cuts)) return;
     updatePO(editPO.id, formToFields(editForm));
     setEditId(null);
@@ -144,9 +163,9 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
                     <td style={{ padding: "6px 10px", fontWeight: 600 }}>{l.itemName}</td>
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{desc || "—"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B7280" }}>{l.vendorDetails || "—"}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(l.finalQty)}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(rate)}
-                      {rate > l.finalRate && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600 }}>Above approved {fmtINR(l.finalRate)}</div>}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(l.finalQty)} {unitOf(l)}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtRate(rate)}
+                      {rate > l.finalRate && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600 }}>Above approved {fmtRate(l.finalRate)}</div>}</td>
                     <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(l.finalQty * rate)}</td>
                   </tr>
                 );
@@ -169,25 +188,31 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, pos, c
         <div style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
           <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
-            Rates, quantities, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be lowered but never raised; the units not bought go back to the approved balance.
+            Rates, quantities, units, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be lowered but never raised; the units not bought go back to the approved balance. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
           </div>
           {signatureCount(editPO) > 0 && (
             <div style={{ background: "#FDF2E3", color: C.amber, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
               This PO already has {signatureCount(editPO)} signature(s). Saving a change clears them, so the corrected PO must be signed again.
             </div>
           )}
-          <SectionTitle>Items, quantities &amp; rates</SectionTitle>
-          <EditItemsTable lines={editPO.lines} allLines={allLines} lineRate={editForm.lineRate || {}} lineQty={editForm.lineQty || {}}
+          <SectionTitle>Items, quantities, units &amp; rates</SectionTitle>
+          <EditItemsTable lines={editPO.lines} allLines={allLines} lineRate={editForm.lineRate || {}} lineQty={editForm.lineQty || {}} editUnit={editUnit} unitBlock={unitBlock}
             setRate={(key, v) => setEditForm((f) => ({ ...f, lineRate: { ...(f.lineRate || {}), [key]: v } }))}
-            setQty={(key, v) => setEditForm((f) => ({ ...f, lineQty: { ...(f.lineQty || {}), [key]: v } }))} />
+            setQty={(key, v) => setEditForm((f) => ({ ...f, lineQty: { ...(f.lineQty || {}), [key]: v } }))} setUnit={setEditUnit} />
           {/* the amount follows the rate and quantity being typed, so the GST pickers and the total stay live */}
           <PODetailsFields form={editForm} setForm={setEditForm} lines={editPO.lines.map((l) => {
+            if (converting(l)) {
+              const amount = (Number(l.qty) || 0) * (Number(l.rate) || 0);
+              const qty = editQty(l) > 0 ? editQty(l) : Number(l.qty) || 0;
+              return { key: lineKey(l), itemName: l.itemName, qty, rate: qty ? amount / qty : 0, amount };
+            }
             const rate = editRate(l) > 0 ? editRate(l) : 0;
             const qty = editQty(l) > 0 && editQty(l) <= Number(l.qty) ? editQty(l) : Number(l.qty) || 0;
             return { key: lineKey(l), itemName: l.itemName, qty, rate, amount: qty * rate };
           })} />
           {!ratesOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>Every item needs a rate above zero.</div>}
           {!qtysOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>A quantity can be lowered but not raised, and must stay above zero.</div>}
+          {!unitsOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>Type the quantity in the new unit for every item whose unit you changed.</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleSaveEdit} disabled={!canSave} style={{ ...btnStyle(C.navy), opacity: canSave ? 1 : 0.5 }}>Save changes</button>
             <button onClick={() => setEditId(null)} style={{ ...btnStyle(C.grey) }}>Cancel</button>
@@ -240,15 +265,18 @@ function signatureCount(po) {
   return Object.values(po.signatures || {}).filter(Boolean).length;
 }
 
-/* The PO's items with a quantity box (it can only come down) and a rate box each, next to the rate
-   the VP approved on the requisition. */
-function EditItemsTable({ lines, allLines, lineRate, lineQty, setRate, setQty }) {
+/* The PO's items with a quantity box (it can only come down), a unit picker and a rate box each, next
+   to the rate the VP approved on the requisition. With a new unit picked the quantity box takes the
+   quantity in it and the rate is worked out from the amount, which stays. */
+function EditItemsTable({ lines, allLines, lineRate, lineQty, editUnit, unitBlock, setRate, setQty, setUnit }) {
+  const hint = { fontSize: 10.5, color: "#9AA1AC", marginTop: 2 };
+  const warn = { ...hint, color: C.red, fontWeight: 600 };
   return (
     <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 12, overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
         <thead>
           <tr style={{ textAlign: "left", color: "#6B7280", fontSize: 10.5, textTransform: "uppercase", background: "#FAFAF8" }}>
-            <th style={th}>PR</th><th style={th}>Item</th><th style={thR}>Qty</th><th style={thR}>Approved Rate</th><th style={thR}>Rate</th><th style={thR}>Amount</th>
+            <th style={th}>PR</th><th style={th}>Item</th><th style={thR}>Qty</th><th style={th}>Unit</th><th style={thR}>Approved Rate</th><th style={thR}>Rate</th><th style={thR}>Amount</th>
           </tr>
         </thead>
         <tbody>
@@ -258,27 +286,43 @@ function EditItemsTable({ lines, allLines, lineRate, lineQty, setRate, setQty })
             const value = lineRate[key] ?? "";
             const n = Number(value);
             const valid = value !== "" && n > 0;
+            const poUnit = l.unit || "Nos";
+            const unit = editUnit(l);
+            const converting = unit !== poUnit;
+            const block = unitBlock(l.prId, l.lineId);
             const qtyValue = lineQty[key] ?? "";
             const q = Number(qtyValue);
-            const qtyValid = qtyValue !== "" && q > 0 && q <= Number(l.qty);
+            const qtyValid = qtyValue !== "" && q > 0 && (converting || q <= Number(l.qty));
+            // new quantity per old one: 10 Nos → 150 Mtr is 15
+            const ratio = converting && qtyValid ? q / Number(l.qty) : null;
             return (
               <tr key={key} style={{ borderTop: "1px solid #F0EFEA" }}>
                 <td style={{ padding: "6px 10px", color: "#6B7280" }}>{l.prId}</td>
                 <td style={{ padding: "6px 10px", fontWeight: 600 }}>{l.itemName}</td>
                 <td style={{ padding: "6px 6px", textAlign: "right" }}>
-                  <input type="number" min="0" max={l.qty} value={qtyValue} onChange={(e) => setQty(key, e.target.value)}
+                  <input type="number" min="0" max={converting ? undefined : l.qty} value={qtyValue} placeholder={converting ? `in ${unit}` : undefined}
+                    onChange={(e) => setQty(key, e.target.value)}
                     style={{ ...cellInput, width: 70, border: `1px solid ${qtyValid ? C.line : C.red}` }} />
-                  {q > Number(l.qty) && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, marginTop: 2 }}>Can't go above {fmtNum(l.qty)}</div>}
-                  {qtyValid && q !== Number(l.qty) && <div style={{ fontSize: 10.5, color: "#9AA1AC", marginTop: 2 }}>was {fmtNum(l.qty)}</div>}
+                  {!converting && q > Number(l.qty) && <div style={warn}>Can't go above {fmtNum(l.qty)}</div>}
+                  {(converting || (qtyValid && q !== Number(l.qty))) && <div style={hint}>was {fmtNum(l.qty)}{converting ? ` ${poUnit}` : ""}</div>}
                 </td>
-                <td style={{ padding: "6px 10px", textAlign: "right", color: "#6B7280" }}>{approved ? fmtINR(approved) : "—"}</td>
+                <td style={{ padding: "6px 6px" }}><UnitSelect value={unit} onChange={(v) => setUnit(l, v)} disabled={!!block} title={block} /></td>
+                <td style={{ padding: "6px 10px", textAlign: "right", color: "#6B7280" }}>
+                  {!approved ? "—" : converting ? (ratio ? fmtRate(approved / ratio) : "—") : fmtRate(approved)}
+                </td>
                 <td style={{ padding: "6px 6px", textAlign: "right" }}>
-                  <input type="number" min="0" step="0.01" value={value} onChange={(e) => setRate(key, e.target.value)}
-                    style={{ ...cellInput, width: 90, border: `1px solid ${valid ? C.line : C.red}` }} />
-                  {valid && approved > 0 && n > approved && <div style={{ fontSize: 10.5, color: C.red, fontWeight: 600, marginTop: 2 }}>Above approved by {fmtINR(n - approved)}</div>}
-                  {valid && n !== Number(l.rate) && <div style={{ fontSize: 10.5, color: "#9AA1AC", marginTop: 2 }}>was {fmtINR(l.rate)}</div>}
+                  {converting
+                    ? <span style={{ padding: "0 4px", fontWeight: 600 }}>{ratio ? fmtRate(Number(l.rate) / ratio) : "—"}</span>
+                    : <input type="number" min="0" step="0.01" value={value} onChange={(e) => setRate(key, e.target.value)}
+                        style={{ ...cellInput, width: 90, border: `1px solid ${valid ? C.line : C.red}` }} />}
+                  {converting && <div style={hint}>was {fmtRate(l.rate)} / {poUnit}</div>}
+                  {!converting && valid && approved > 0 && n > approved && <div style={warn}>Above approved by {fmtRate(n - approved)}</div>}
+                  {!converting && valid && round2(n) !== round2(l.rate) && <div style={hint}>was {fmtRate(l.rate)}</div>}
                 </td>
-                <td style={{ padding: "6px 10px", textAlign: "right" }}>{valid && qtyValid ? fmtMoney(q * n) : "—"}</td>
+                <td style={{ padding: "6px 10px", textAlign: "right" }}>
+                  {converting ? (ratio ? fmtMoney(Number(l.qty) * Number(l.rate)) : "—") : valid && qtyValid ? fmtMoney(q * n) : "—"}
+                  {ratio && <div style={hint}>unchanged</div>}
+                </td>
               </tr>
             );
           })}
