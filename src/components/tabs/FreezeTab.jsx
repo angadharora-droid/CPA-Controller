@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { C, STATUS_COLORS, APPROVAL_STATES, th, thR, pgBtn, cellInput, btnStyle } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
 import { Badge, ReconIndicator, MiniStat } from "../ui.jsx";
 
 /* ================= BUDGET REVIEW & FREEZE ================= */
@@ -276,7 +276,7 @@ function ItemRow({ it, updateItem, setItemApproval, updateItemBrand, frozen, sel
         {frozen ? fmtNum(it.qty) : <input defaultValue={it.qty ?? ""} onBlur={(e) => updateItem(it.id, { qty: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
       </td>
       <td style={{ padding: "3px 6px", textAlign: "right" }}>
-        {frozen ? fmtINR(it.rate) : <input defaultValue={it.rate ?? ""} onBlur={(e) => updateItem(it.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
+        {frozen ? fmtRate(it.rate) : <input defaultValue={it.rate ?? ""} onBlur={(e) => updateItem(it.id, { rate: e.target.value === "" ? null : Number(e.target.value) })} style={cellInput} />}
       </td>
       <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600 }}>{fmtINR(it.val)}</td>
       <td style={{ padding: "7px 10px" }}><Badge bg={sc.bg} fg={sc.fg}>{sc.label}</Badge></td>

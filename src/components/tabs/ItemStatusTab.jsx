@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { C, th, thR, toggleBtn, toggleActive } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { Badge } from "../ui.jsx";
 
@@ -56,7 +56,7 @@ export default function ItemStatusTab({ HEADS, items, cardStyle }) {
                   <td style={{ padding: "7px 10px", color: "#6B7280" }}>{it.brand || "—"}</td>
                   <td style={{ padding: "7px 10px", color: "#6B7280" }}>{it.spec || "—"}</td>
                   <td style={{ padding: "7px 10px", textAlign: "right" }}>{fmtNum(it.qty)} {it.unit}</td>
-                  <td style={{ padding: "7px 10px", textAlign: "right" }}>{fmtINR(it.rate)}</td>
+                  <td style={{ padding: "7px 10px", textAlign: "right" }}>{fmtRate(it.rate)}</td>
                   <td style={{ padding: "7px 10px" }}>
                     {view === "approved"
                       ? <Badge bg="#E9F6EF" fg={C.green}>{it.freezeState}</Badge>

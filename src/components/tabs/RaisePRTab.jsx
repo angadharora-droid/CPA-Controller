@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { C, th, thR, pgBtn, cellInput, cardBase, inputStyle, toggleBtn, toggleActive, btnStyle } from "../../theme.js";
-import { fmtINR, fmtNum } from "../../utils/format.js";
+import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
 import { Field, PRResultPanel } from "../ui.jsx";
 
 const URGENCIES = ["Normal", "High — opening critical", "Low"];
@@ -141,7 +141,7 @@ function SingleOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitB
             <td style={{ padding: "8px 10px", color: "#6B7280" }}>{it.head}{it.sub ? ` · ${it.sub}` : ""}</td>
             <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtNum(it.qty)} {it.unit}</td>
             <BalanceCell item={it} pendingQtyByItem={pendingQtyByItem} padding="8px 10px" />
-            <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtINR(it.rate)}</td>
+            <td style={{ padding: "8px 10px", textAlign: "right" }}>{fmtRate(it.rate)}</td>
           </tr>
         )}
       />
@@ -152,7 +152,7 @@ function SingleOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitB
 
 function SingleOrderForm({ item, pendingQty, submitBundledPR, cardStyle, currentUser, readOnly, onClose }) {
   const [qty, setQty] = useState("");
-  const [rate, setRate] = useState(item.rate);
+  const [rate, setRate] = useState(round2(item.rate));
   const [proposedBrand, setProposedBrand] = useState(item.brand || "");
   const [proposedModel, setProposedModel] = useState(item.spec || "");
   const [requestedBy, setRequestedBy] = useState(currentUser?.name || "");
@@ -188,7 +188,7 @@ function SingleOrderForm({ item, pendingQty, submitBundledPR, cardStyle, current
         <div style={{ background: "#FAFAF8", border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, marginTop: 10, fontSize: 12.5 }}>
           <div>Approved qty: <b>{fmtNum(item.qty)} {item.unit}</b> · Remaining balance: <b><BalanceText left={remainingQty} /></b></div>
           {((item.committedQty || 0) > 0 || pendingQty > 0) && <div style={{ color: "#6B7280" }}>Already approved: <b>{fmtNum(item.committedQty || 0)}</b> · Awaiting approval: <b>{fmtNum(pendingQty)}</b></div>}
-          <div>Approved rate: <b>{fmtINR(item.rate)}</b> · Approved brand: <b>{item.brand || "Not specified"}</b></div>
+          <div>Approved rate: <b>{fmtRate(item.rate)}</b> · Approved brand: <b>{item.brand || "Not specified"}</b></div>
           <div>Approved model/specs: <b>{item.spec || "Not specified"}</b></div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
@@ -235,7 +235,7 @@ function BulkOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitBun
   }, [approvedItemsForPR, headFilter, query]);
 
   function blankRow(item) {
-    return { checked: false, qty: "", rate: item ? item.rate : "", brand: item ? (item.brand || "") : "", model: item ? (item.spec || "") : "" };
+    return { checked: false, qty: "", rate: item ? round2(item.rate) : "", brand: item ? (item.brand || "") : "", model: item ? (item.spec || "") : "" };
   }
   function setRow(id, patch, item) {
     setRows((prev) => ({ ...prev, [id]: { ...blankRow(item), ...prev[id], ...patch } }));
@@ -288,7 +288,7 @@ function BulkOrderPanel({ HEADS, approvedItemsForPR, pendingQtyByItem, submitBun
               <td style={{ padding: "6px 10px", color: "#6B7280" }}>{it.head}{it.sub ? ` · ${it.sub}` : ""}</td>
               <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtNum(it.qty)} {it.unit}</td>
               <BalanceCell item={it} pendingQtyByItem={pendingQtyByItem} padding="6px 10px" />
-              <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtINR(it.rate)}</td>
+              <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmtRate(it.rate)}</td>
               <td style={{ padding: "6px 6px" }}><input type="number" placeholder="Qty" disabled={!row.checked} value={row.qty} onChange={(e) => setRow(it.id, { qty: e.target.value }, it)} title={over ? "More than the remaining balance — this line will go to the VP's Exception Desk" : undefined} style={{ ...cellInput, width: 60, background: bg, ...(over ? { borderColor: C.red, color: C.red, fontWeight: 700 } : {}) }} /></td>
               <td style={{ padding: "6px 6px" }}><input type="number" placeholder="Rate" disabled={!row.checked} value={row.rate} onChange={(e) => setRow(it.id, { rate: e.target.value }, it)} style={{ ...cellInput, width: 70, background: bg }} /></td>
               <td style={{ padding: "6px 6px" }}><input placeholder="Brand" disabled={!row.checked} value={row.brand} onChange={(e) => setRow(it.id, { brand: e.target.value }, it)} style={{ ...cellInput, width: 80, textAlign: "left", background: bg }} /></td>
