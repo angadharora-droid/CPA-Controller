@@ -3,11 +3,10 @@ import { C, cellInput, btnStyle } from "../theme.js";
 import { fmtNum, fmtRate } from "../utils/format.js";
 import { UNITS } from "../utils/units.js";
 
-/* The Purchase Manager can only lower a quantity, and a cut can't be taken back, so it is confirmed
-   first. `cuts` is [{ itemName, was, n }]. */
+/* Confirm quantity cuts. `cuts` is [{ itemName, was, n }]. */
 export function confirmQtyCut(cuts) {
   const list = cuts.map((c) => `"${c.itemName}": ${fmtNum(c.was)} → ${fmtNum(c.n)}`).join("\n");
-  return window.confirm(`Reduce the quantity?\n\n${list}\n\nThe units not bought go back to the approved balance. A quantity can't be raised again afterwards.`);
+  return window.confirm(`Reduce the quantity?\n\n${list}\n\nThe units not bought go back to the approved balance.`);
 }
 
 /* A new unit converts the budget item and every requisition for it, so it is confirmed first.
