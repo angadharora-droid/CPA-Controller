@@ -117,8 +117,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
   // an item given a new unit: its quantity is the one in that unit, and its rate follows so the amount stays
   const converting = (l) => editUnit(l) !== (l.unit || "Nos");
   const ratesOk = editPO && editPO.lines.every((l) => converting(l) || editRate(l) > 0);
-  // a quantity may come down, never go up
-  const qtysOk = editPO && editPO.lines.every((l) => converting(l) || (editQty(l) > 0 && editQty(l) <= Number(l.qty)));
+  const qtysOk = editPO && editPO.lines.every((l) => converting(l) || editQty(l) > 0);
   const unitsOk = editPO && editPO.lines.every((l) => !converting(l) || editQty(l) > 0);
   const canSave = editPO && ratesOk && qtysOk && unitsOk && editForm.supplier.trim() && editForm.deliveryDate;
   function setEditUnit(l, unit) {
@@ -194,7 +193,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
         <div ref={editRef} style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold, scrollMarginTop: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
           <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
-            Rates, quantities, units, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be lowered but never raised; the units not bought go back to the approved balance. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
+            Rates, quantities, units, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be adjusted up or down; changes are reflected back in requisition commitments. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
           </div>
           {signatureCount(editPO) > 0 && (
             <div style={{ background: "#FDF2E3", color: C.amber, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
@@ -213,11 +212,11 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
               return { key: lineKey(l), itemName: l.itemName, qty, rate: qty ? amount / qty : 0, amount };
             }
             const rate = editRate(l) > 0 ? editRate(l) : 0;
-            const qty = editQty(l) > 0 && editQty(l) <= Number(l.qty) ? editQty(l) : Number(l.qty) || 0;
+            const qty = editQty(l) > 0 ? editQty(l) : Number(l.qty) || 0;
             return { key: lineKey(l), itemName: l.itemName, qty, rate, amount: qty * rate };
           })} />
           {!ratesOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>Every item needs a rate above zero.</div>}
-          {!qtysOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>A quantity can be lowered but not raised, and must stay above zero.</div>}
+          {!qtysOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>Every quantity must stay above zero.</div>}
           {!unitsOk && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 8 }}>Type the quantity in the new unit for every item whose unit you changed.</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={handleSaveEdit} disabled={!canSave} style={{ ...btnStyle(C.navy), opacity: canSave ? 1 : 0.5 }}>Save changes</button>
@@ -283,7 +282,7 @@ function signatureCount(po) {
   return Object.values(po.signatures || {}).filter(Boolean).length;
 }
 
-/* The PO's items with a quantity box (it can only come down), a unit picker and a rate box each, next
+/* The PO's items with a quantity box (it can go up or down), a unit picker and a rate box each, next
    to the rate the VP approved on the requisition. With a new unit picked the quantity box takes the
    quantity in it and the rate is worked out from the amount, which stays. */
 function EditItemsTable({ lines, allLines, lineRate, lineQty, editUnit, unitBlock, setRate, setQty, setUnit }) {
@@ -310,7 +309,7 @@ function EditItemsTable({ lines, allLines, lineRate, lineQty, editUnit, unitBloc
             const block = unitBlock(l.prId, l.lineId);
             const qtyValue = lineQty[key] ?? "";
             const q = Number(qtyValue);
-            const qtyValid = qtyValue !== "" && q > 0 && (converting || q <= Number(l.qty));
+            const qtyValid = qtyValue !== "" && q > 0;
             // new quantity per old one: 10 Nos → 150 Mtr is 15
             const ratio = converting && qtyValid ? q / Number(l.qty) : null;
             return (
@@ -318,10 +317,9 @@ function EditItemsTable({ lines, allLines, lineRate, lineQty, editUnit, unitBloc
                 <td style={{ padding: "6px 10px", color: "#6B7280" }}>{l.prId}</td>
                 <td style={{ padding: "6px 10px", fontWeight: 600 }}>{l.itemName}</td>
                 <td style={{ padding: "6px 6px", textAlign: "right" }}>
-                  <input type="number" min="0" max={converting ? undefined : l.qty} value={qtyValue} placeholder={converting ? `in ${unit}` : undefined}
+                  <input type="number" min="0" value={qtyValue} placeholder={converting ? `in ${unit}` : undefined}
                     onChange={(e) => setQty(key, e.target.value)}
                     style={{ ...cellInput, width: 70, border: `1px solid ${qtyValid ? C.line : C.red}` }} />
-                  {!converting && q > Number(l.qty) && <div style={warn}>Can't go above {fmtNum(l.qty)}</div>}
                   {(converting || (qtyValid && q !== Number(l.qty))) && <div style={hint}>was {fmtNum(l.qty)}{converting ? ` ${poUnit}` : ""}</div>}
                 </td>
                 <td style={{ padding: "6px 6px" }}><UnitSelect value={unit} onChange={(v) => setUnit(l, v)} disabled={!!block} title={block} /></td>
