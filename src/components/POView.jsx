@@ -285,10 +285,11 @@ function unitLabel(po) {
 }
 
 /* ================= ON-SCREEN WRAPPER: document + digital signatures + print ================= */
-export default function POView({ po, signPO, role, isAdmin }) {
+/* signAs: the box the signed-in user signs ("vp" | "president" | "purchaseManager"), or null (data/access.js). */
+export default function POView({ po, signPO, signAs }) {
   const SigBlock = ({ roleKey, label: lbl, requiredRole }) => {
     const sig = po.signatures?.[roleKey];
-    const canSign = (role === requiredRole || isAdmin) && !sig;
+    const canSign = signAs === roleKey && !sig;
     return (
       <div style={{ flex: 1, border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, textAlign: "center", minWidth: 150 }}>
         <div style={{ fontSize: 10.5, color: "#9AA1AC", textTransform: "uppercase" }}>{lbl}</div>

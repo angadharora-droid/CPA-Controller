@@ -130,6 +130,15 @@ export async function openStore(db, client) {
     return out;
   });
 
+  /* Just these slices with the revision numbers, without the audit trail. */
+  const readSlices = (wanted) => inTx(async (session) => {
+    const s = await settings.findOne({ _id: MAIN }, { session });
+    if (!s) return null;
+    const out = { revs: revsOf(s) };
+    for (const k of wanted) out[k] = LISTS[k] ? await readList(k, session) : s[k] ?? settingDefault(k);
+    return out;
+  });
+
   async function readRevs() {
     const s = await settings.findOne({ _id: MAIN }, { projection: { revs: 1 } });
     return s ? revsOf(s) : null;
@@ -294,5 +303,5 @@ export async function openStore(db, client) {
     if (unnumbered.length) await settings.updateOne({ _id: MAIN }, { $set: Object.fromEntries(unnumbered.map((k) => [`revs.${k}`, 0])) });
   }
 
-  return { transactions, init, readAll, readSome, readRevs, save, snapshot, writeWhole };
+  return { transactions, init, readAll, readSome, readSlices, readRevs, save, snapshot, writeWhole };
 }

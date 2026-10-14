@@ -63,7 +63,7 @@ function formFromPO(po) {
 }
 
 /* ================= ISSUE PO (Purchase Manager) ================= */
-export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBlock, pos, cardStyle, role, isAdmin, readOnly }) {
+export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, signAs, unitBlock, pos, cardStyle, readOnly }) {
   const readyLines = allLines.filter((l) => l.status === "Ready for PO");
   const [selected, setSelected] = useState(() => new Set());
   const [form, setForm] = useState(BLANK_FORM);
@@ -234,7 +234,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
               ? <LockedNote />
               : !readOnly && <button onClick={() => startEdit(lastPO)} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
           </div>
-          <POView po={lastPO} signPO={signPO} role={role} isAdmin={isAdmin} />
+          <POView po={lastPO} signPO={signPO} signAs={signAs} />
         </>
       )}
 
@@ -268,7 +268,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
               ? <LockedNote />
               : !readOnly && <button onClick={() => { setViewPoId(null); startEdit(viewPo); }} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
           </div>
-          <POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} />
+          <POView po={viewPo} signPO={signPO} signAs={signAs} />
         </Modal>
       )}
     </div>

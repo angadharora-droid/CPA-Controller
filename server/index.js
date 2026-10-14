@@ -12,6 +12,7 @@ import { BASE_HEADS } from "../src/data/heads.js";
 import { nowStamp } from "../src/utils/format.js";
 import { verifySsoToken, directoryGuard } from "./ssoClient.js";
 import { openStore, SLICES, revsOf } from "./store.js";
+import { writableSlices, signBoxOf, viewsOnly } from "../src/data/access.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5000;
@@ -33,7 +34,8 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   role: { type: String, required: true, enum: ROLES },
   title: { type: String, default: "" },
-  /* Full administrative access (every tab, every action) on top of the user's workflow role. */
+  /* Once full administrative access; since 2026-10-15 it grants nothing. What each login may change is
+     set in src/data/access.js. */
   isAdmin: { type: Boolean, default: false },
   passwordHash: { type: String, required: true },
 });
@@ -49,12 +51,13 @@ let store;
 const SEED_USERS = [
   { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Kandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
   { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
-  { userId: "purchase", password: "Purchase@2026", name: "Purchase Manager", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
-  { userId: "store", password: "Store@2026", name: "Store Manager", role: "Store Manager", title: "Store Manager — Goods Receipt" },
+  { userId: "purchase", password: "Purchase@2026", name: "Narendra", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
+  { userId: "store", password: "Store@2026", name: "Shailendra", role: "Store Manager", title: "Store Manager — Goods Receipt" },
   { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
   { userId: "ravisharma", password: "Ravi@2026", name: "Ravi Sharma", role: "Department Head", title: "Department Head — Requisitions" },
   { userId: "sunil", password: "Sunil@2026", name: "Sunil", role: "Department Head", title: "Department Head — Requisitions" },
   { userId: "shashank", password: "Shashank@2026", name: "Shashank Kapley", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
+  { userId: "ganesh", password: "Ganesh@2026", name: "Ganesh", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
 ];
 
 function freshState() {
@@ -133,6 +136,14 @@ async function migrateUsers() {
   if (foldedPE.modifiedCount) console.log(`Migrated ${foldedPE.modifiedCount} account(s) from role Purchase Executive to Purchase Manager.`);
   const retitled = await User.updateOne({ userId: "purchase", title: "Purchase Manager — Rate Negotiation" }, { $set: { title: pm.title } });
   if (retitled.modifiedCount) console.log('Updated the "purchase" account title for the merged role.');
+
+  // The Purchase Manager and Store Manager logins belong to named people now: they show the person's name
+  // (in the header, the audit trail and PO signatures); the login IDs stay "purchase" and "store".
+  for (const id of ["purchase", "store"]) {
+    const seedUser = SEED_USERS.find((u) => u.userId === id);
+    const named = await User.updateOne({ userId: id, name: seedUser.role }, { $set: { name: seedUser.name } });
+    if (named.modifiedCount) console.log(`Renamed the "${id}" account to "${seedUser.name}".`);
+  }
 }
 
 /* ---------- auth ---------- */
@@ -216,6 +227,29 @@ app.get("/api/sso/users", directoryGuard, async (req, res) => {
 });
 
 const VIEW_ONLY = "This login is view-only and cannot make changes.";
+const NOT_YOURS = "Your login can view this screen but not change it, so the change was not saved.";
+
+/* JSON with object keys in a fixed order, so two copies of a record compare equal however they were built. */
+function stable(v) {
+  return JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((n) => [n, x[n]])) : x));
+}
+
+/* True when the POs being saved differ from the stored ones only by this person's signature going into
+   their own empty box (`box`) — how the VP and the President sign a PO they otherwise only view. */
+function onlyOwnSignature(stored, sent, box, name) {
+  if (!Array.isArray(sent) || sent.length !== stored.length) return false;
+  const blank = (po) => ({ ...po, signatures: { ...(po.signatures || {}), [box]: null } });
+  let signed = 0;
+  for (let i = 0; i < sent.length; i++) {
+    const was = stored[i], now = sent[i];
+    if (!now || now.id !== was.id || stable(blank(now)) !== stable(blank(was))) return false;
+    const before = (was.signatures || {})[box] || null, after = (now.signatures || {})[box] || null;
+    if (stable(before) === stable(after)) continue;
+    if (before || !after || after.by !== name) return false;
+    signed++;
+  }
+  return signed > 0;
+}
 
 /* Whole state, or with ?slices=a,b&auditLen=N just those slices plus the audit entries added since the
    caller's copy. Browsers re-read this way every few seconds when something changed, so it has to stay small. */
@@ -247,7 +281,7 @@ app.get("/api/state/revs", requireAuth, async (req, res) => {
    a browser holding an old copy gets 409 instead of overwriting newer work. The audit trail is never
    replaced, only added to, so it needs no revision check. */
 app.put("/api/state", requireAuth, async (req, res) => {
-  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: VIEW_ONLY });
+  if (req.user.role === VIEWER_ROLE || viewsOnly(req.user.sub)) return res.status(403).json({ error: VIEW_ONLY });
   const { base = {}, set = {}, auditAppend = [] } = req.body || {};
   const keys = Object.keys(set);
   const unknown = keys.find((k) => !SLICES.includes(k) || k === "audit");
@@ -256,6 +290,20 @@ app.put("/api/state", requireAuth, async (req, res) => {
   if (notList) return res.status(400).json({ error: `"${notList}" must be a list.` });
   if (!Array.isArray(auditAppend)) return res.status(400).json({ error: "auditAppend must be a list." });
   if (!keys.length && !auditAppend.length) return res.status(400).json({ error: "Nothing to save." });
+
+  // every slice saved must belong to a tab this login edits (src/data/access.js); the one exception is
+  // a PO signature, which the VP and the President put on POs they otherwise only view
+  const mine = writableSlices(req.user.sub);
+  const outside = keys.filter((k) => !mine.has(k));
+  if (outside.length) {
+    const box = signBoxOf(req.user.sub);
+    if (!box || outside.length !== 1 || outside[0] !== "pos") return res.status(403).json({ error: NOT_YOURS });
+    const now = await store.readSlices(["pos"]);
+    // the POs changed since this browser read them: the save below refuses it (409) and the browser merges and retries
+    if (now && (now.revs.pos || 0) === Number(base.pos || 0) && !onlyOwnSignature(now.pos, set.pos, box, req.user.name)) {
+      return res.status(403).json({ error: NOT_YOURS });
+    }
+  }
 
   const saved = await store.save({ base, set, auditAppend });
   if (saved.conflict) return res.status(409).json({ error: "Someone else changed this data first.", revs: saved.revs });
@@ -266,7 +314,7 @@ app.put("/api/state", requireAuth, async (req, res) => {
    opened before the upgrade still calls it, and that page is exactly the out-of-date copy that must not
    be written — so it is refused. */
 app.put("/api/state/:slice", requireAuth, (req, res) => {
-  if (req.user.role === VIEWER_ROLE) return res.status(403).json({ error: VIEW_ONLY });
+  if (req.user.role === VIEWER_ROLE || viewsOnly(req.user.sub)) return res.status(403).json({ error: VIEW_ONLY });
   res.status(409).json({ error: "This page is out of date. Refresh the browser to carry on." });
 });
 
