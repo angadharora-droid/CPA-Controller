@@ -480,42 +480,53 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`Purchase Manager changed the rate of "${ln.itemName}" (${prId}) from ${fmtRate(was)} to ${fmtRate(n)}${vsApproved}.`);
   }
 
-  /* What cutting a requisition line to `n` means, or null when `n` is not a cut. The Purchase
-     Manager may buy fewer than approved, never more: the quantity only ever comes down. */
-  function qtyCut(ln, n) {
+  /* What changing a requisition line to `n` means, or null when there is no change. */
+  function qtyChange(ln, n) {
     const was = Number(ln.finalQty) || 0;
-    if (isNaN(n) || n <= 0 || n >= was) return null;
-    const cut = was - n;
+    if (isNaN(n) || n <= 0 || n === was) return null;
+    const delta = n - was;
     const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
     const unit = unitOf(ln, item);
+    const abs = Math.abs(delta);
     return {
-      was, n, cut, unit, itemId: item ? item.id : null,
-      released: item ? `${fmtNum(cut)} ${unit} back to the item's approved balance` : `${fmtINR(cut * ln.finalRate)} back to the "${ln.headName}" budget head`,
+      was, n, delta, unit, itemId: item ? item.id : null,
+      note: delta < 0
+        ? item ? `${fmtNum(abs)} ${unit} back to the item's approved balance` : `${fmtINR(abs * ln.finalRate)} back to the "${ln.headName}" budget head`
+        : item ? `${fmtNum(abs)} ${unit} added to the item's committed quantity` : `${fmtINR(abs * ln.finalRate)} added to the "${ln.headName}" committed value`,
     };
   }
 
-  /* Apply a cut. The line keeps the VP's own figure as vpQty, and the units not bought go back to the
-     approved balance: off the item's committed figures (an unbudgeted line's head total is worked out
-     from the line itself, so it follows on its own). */
-  function applyQtyCut(prId, ln, c) {
-    updateLine(prId, ln.lineId, { finalQty: c.n, vpQty: ln.vpQty ?? c.was });
-    if (c.itemId) {
-      setItems((prev) => prev.map((it) => it.id === c.itemId ? {
+  /* Apply a quantity change while keeping committed quantities aligned. */
+  function applyQtyChange(prId, ln, q) {
+    const baseVpQty = ln.vpQty ?? q.was;
+    updateLine(prId, ln.lineId, { finalQty: q.n, vpQty: baseVpQty === q.n ? undefined : baseVpQty });
+    if (q.itemId) {
+      setItems((prev) => prev.map((it) => it.id === q.itemId ? {
         ...it,
-        committedQty: Math.max(0, (it.committedQty || 0) - c.cut),
-        committedVal: Math.max(0, (it.committedVal || 0) - c.cut * ln.finalRate),
+        committedQty: Math.max(0, (it.committedQty || 0) + q.delta),
+        committedVal: Math.max(0, (it.committedVal || 0) + q.delta * ln.finalRate),
       } : it));
     }
+  }
+
+  function qtyCut(ln, n) {
+    const q = qtyChange(ln, n);
+    if (!q || q.delta >= 0) return null;
+    return { ...q, cut: Math.abs(q.delta), released: q.note };
+  }
+
+  function applyQtyCut(prId, ln, c) {
+    applyQtyChange(prId, ln, c);
   }
 
   /* Before the PO; once a line is on a PO its quantity is cut through Edit PO, so the two stay equal. */
   function pmSetQty(prId, lineId, qty) {
     const ln = getLine(prId, lineId);
     if (!ln || (ln.status !== "Pending Purchase Manager" && ln.status !== "Ready for PO")) return;
-    const c = qtyCut(ln, Number(qty));
-    if (!c) return;
-    applyQtyCut(prId, ln, c);
-    logAudit(`Purchase Manager reduced the quantity of "${ln.itemName}" (${prId}) from ${fmtNum(c.was)} to ${fmtNum(c.n)} ${c.unit} — ${c.released}.`);
+    const q = qtyChange(ln, Number(qty));
+    if (!q) return;
+    applyQtyChange(prId, ln, q);
+    logAudit(`Purchase Manager changed the quantity of "${ln.itemName}" (${prId}) from ${fmtNum(q.was)} to ${fmtNum(q.n)} ${q.unit} — ${q.note}.`);
   }
 
   /* A budget item counts in one unit, so its unit can change only while no PO carries the item in
