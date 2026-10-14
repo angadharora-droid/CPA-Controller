@@ -8,6 +8,7 @@ import { raisedLane } from "./classifyLine.js";
    agree with the Dashboard (committed) and Raise PR (balance). Values are before GST. */
 
 const num = (v) => Number(v) || 0;
+const has = (v) => v !== undefined && v !== null && v !== "";
 
 function pushUnique(list, v) {
   if (v && !list.includes(v)) list.push(v);
@@ -25,7 +26,7 @@ export function remainingToOrder(item, pendingQty) {
    against its head once the President approves it. */
 export function lineCommits(l) {
   if (l.vpDecision !== "Approved" && l.vpDecision !== "Modified & Approved") return false;
-  return l.itemId ? l.presidentDecision !== "Rejected" : l.presidentDecision === "Approved";
+  return l.itemId ? l.presidentDecision !== "Rejected" : l.presidentDecision === "Approved" || l.presidentDecision === "Modified & Approved";
 }
 
 /* Where a line stands, in words: its workflow status until it is on a PO, then how much has come in. */
@@ -66,8 +67,11 @@ export function buildLineRows({ items, allLines, pos, grns }) {
       requestedQty: num(l.requestedQty), requestedRate: num(l.requestedRate),
       lane: raisedLane(l) === "exception" ? "Exception" : "Good to Approve", reasons: l.reasons || [],
       vpDecision: l.vpDecision || "", presidentDecision: l.presidentDecision || "",
-      // the VP's own figure, when the Purchase Manager has since cut the quantity
-      vpQty: l.vpQty !== undefined && l.vpQty !== null ? num(l.vpQty) : null, finalQty: num(l.finalQty),
+      // the VP's own figures, once the President has modified them or the Purchase Manager has cut the
+      // quantity; and the President's, when the President approved at figures of their own
+      vpQty: has(l.vpQty) ? num(l.vpQty) : null, vpRate: has(l.vpRate) ? num(l.vpRate) : null,
+      presidentQty: has(l.presidentQty) ? num(l.presidentQty) : null, presidentRate: has(l.presidentRate) ? num(l.presidentRate) : null,
+      finalQty: num(l.finalQty),
       approvedQty: lineCommits(l) ? num(l.finalQty) : 0, approvedRate: num(l.finalRate),
       pmRate: l.pmRate ? num(l.pmRate) : null,
       status: l.status || "", stage: stageOf(l, poQty, receivedQty),

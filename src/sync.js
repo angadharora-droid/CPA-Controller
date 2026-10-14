@@ -80,6 +80,8 @@ export function createStateSync({ api, normalize, adopt, notify, readOnly = fals
     } catch (err) {
       if (err.status === 409 && err.data?.revs) await rebase(err.data.revs).catch((e) => retryLater(e));
       else if (err.status === 401) { signedOut = true; notify("unsaved", "Your session has expired, so your latest change was not saved. Log out and sign in again."); }
+      // not this login's to change (src/data/access.js): trying again cannot help, so take the change back off the screen
+      else if (err.status === 403) { show(synced); notify("unsaved", `${err.message} It has been undone.`); }
       else retryLater(err);
     } finally {
       busy = false;

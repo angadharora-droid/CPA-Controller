@@ -5,7 +5,7 @@ import { Modal, SearchBox } from "../ui.jsx";
 import POView from "../POView.jsx";
 
 /* ================= DELIVERY CALENDAR ================= */
-export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role, isAdmin }) {
+export default function DeliveryCalendarTab({ pos, cardStyle, signPO, signAs }) {
   const [viewPoId, setViewPoId] = useState(null);
   const viewPo = pos.find((p) => p.id === viewPoId) || null;
   const [query, setQuery] = useState("");
@@ -44,7 +44,7 @@ export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role, isAd
       {/* opens over the calendar: below every date card it was off-screen, so the button seemed to do nothing */}
       {viewPo && (
         <Modal title={`${viewPo.id} — ${viewPo.supplier}`} onClose={() => setViewPoId(null)}>
-          <POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} />
+          <POView po={viewPo} signPO={signPO} signAs={signAs} />
         </Modal>
       )}
     </div>

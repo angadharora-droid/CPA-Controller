@@ -88,7 +88,10 @@ export default function ItemHistory({ item, progress, lines, pos, audit }) {
               const decided = who.decisions.get(`${r.prId}::${r.itemName}`) || [];
               const last = (role) => decided.filter((d) => d.role === role).pop();
               const vpApproved = r.vpDecision === "Approved" || r.vpDecision === "Modified & Approved";
-              const cut = r.vpQty !== null && r.vpQty > r.finalQty;
+              // the figures each desk approved at; anything below the last of them was cut by Purchase
+              const vpQty = r.vpQty ?? r.finalQty, vpRate = r.vpRate ?? r.approvedRate;
+              const byPresident = r.presidentQty !== null;
+              const cut = r.finalQty < (byPresident ? r.presidentQty : vpQty);
               const ready = who.ready.get(`${r.prId}::${r.itemName}`);
               return (
                 <tr key={r.lineId} style={rowStyle}>
@@ -104,17 +107,21 @@ export default function ItemHistory({ item, progress, lines, pos, audit }) {
                   </td>
                   <td style={{ ...td, minWidth: 170 }}>
                     <DecisionBadge decision={r.vpDecision || "Pending"} />
-                    {vpApproved && <div style={{ marginTop: 3 }}>{q(cut ? r.vpQty : r.finalQty)} @ {fmtRate(r.approvedRate)}</div>}
+                    {vpApproved && <div style={{ marginTop: 3 }}>{q(vpQty)} @ {fmtRate(vpRate)}</div>}
                     {r.vpDecision !== "Pending" && <By entry={last("VP")} />}
-                    {cut && <div style={{ ...small, color: C.amber }}>cut to {q(r.finalQty)} by Purchase</div>}
                   </td>
                   <td style={{ ...td, minWidth: 150 }}>
                     {r.presidentDecision
-                      ? <><DecisionBadge decision={r.presidentDecision} />{r.presidentDecision !== "Pending" && <By entry={last("President")} />}</>
+                      ? <>
+                          <DecisionBadge decision={r.presidentDecision} />
+                          {byPresident && <div style={{ marginTop: 3 }}>{q(r.presidentQty)} @ {fmtRate(r.presidentRate)}</div>}
+                          {r.presidentDecision !== "Pending" && <By entry={last("President")} />}
+                        </>
                       : <span style={small}>{vpApproved ? "Not needed" : "—"}</span>}
                   </td>
                   <td style={td}>
                     <StageBadge stage={r.stage} />
+                    {cut && <div style={{ ...small, color: C.amber, marginTop: 3 }}>cut to {q(r.finalQty)} by Purchase</div>}
                     {ready && <div style={{ ...small, marginTop: 3 }}>Ready for PO by {ready.who}</div>}
                   </td>
                 </tr>

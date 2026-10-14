@@ -7,6 +7,7 @@ import { classifyLine } from "./utils/classifyLine.js";
 import { unitOf } from "./utils/units.js";
 import { todayISO, computeTransport, poIsLocked, lineHasOwnGst } from "./utils/po.js";
 import { C } from "./theme.js";
+import { editTabsOf, signBoxOf } from "./data/access.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
 import VPImportPanel from "./components/tabs/VPImportPanel.jsx";
@@ -22,7 +23,8 @@ import ReportsTab from "./components/tabs/ReportsTab.jsx";
 import AuditTab from "./components/tabs/AuditTab.jsx";
 import DemoTab from "./components/tabs/DemoTab.jsx";
 
-const ALL_ROLES = ["VP", "President", "Purchase Manager", "Store Manager", "Department Head"];
+/* Tabs with something to change on them; on these a login without edit rights is told it can only view. */
+const ACTION_TABS = new Set(["freeze", "raisepr", "vpdesk", "president2nd", "pmqueue", "issuepo", "receive", "demo"]);
 
 /* PO header fields that can be corrected after issue, with the label used in the audit trail. */
 const PO_EDITABLE = {
@@ -73,13 +75,14 @@ const POLL_MS = 5000; // how often an open browser asks the server whether anyth
 
 export default function BudgetApp({ currentUser, onLogout }) {
   const role = currentUser.role;
-  /* Admin is a flag on the account, not a role: the user keeps their workflow role (so the audit trail
-     and PO signatures record it) while every tab and every action stays open to them. */
-  const isAdmin = !!currentUser.isAdmin;
-  /* A view-only login opens every tab like an admin, but every action is hidden or disabled, nothing
-     is saved back, and the server refuses its writes. */
-  const readOnly = role === "Viewer";
-  const seesAllTabs = isAdmin || readOnly;
+  /* Everyone opens every tab. What a login may change is set per tab in data/access.js (the server
+     enforces the same table): a tab it cannot edit shows read-only. The PO signature box it signs, if
+     any, is separate: the VP and the President sign POs they otherwise only view. */
+  const editTabs = useMemo(() => new Set(editTabsOf(currentUser.id)), [currentUser.id]);
+  const canEdit = (tabId) => editTabs.has(tabId);
+  const signAs = signBoxOf(currentUser.id);
+  /* A login that can change nothing at all: every action hidden or disabled, nothing saved back. */
+  const readOnly = role === "Viewer" || (editTabs.size === 0 && !signAs);
   const whoLabel = `${currentUser.name} (${role})`;
   const [tolerancePct, setTolerancePct] = useState(5);            // good-to-approve lane threshold
   const [secondApprovalPct, setSecondApprovalPct] = useState(15); // President's 2nd-approval threshold
@@ -165,7 +168,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     HEADS.forEach((h) => (o[h.name] = 0));
     items.forEach((it) => { if (!it.deleted) o[it.head] = (o[it.head] || 0) + (it.committedVal || 0); });
     allLines.forEach((l) => {
-      if (!l.itemId && l.headName && l.presidentDecision === "Approved") o[l.headName] = (o[l.headName] || 0) + (l.finalQty || 0) * (l.finalRate || 0);
+      if (!l.itemId && l.headName && (l.presidentDecision === "Approved" || l.presidentDecision === "Modified & Approved")) o[l.headName] = (o[l.headName] || 0) + (l.finalQty || 0) * (l.finalRate || 0);
     });
     return o;
   }, [HEADS, items, allLines]);
@@ -440,7 +443,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`${prId} line "${ln.itemName}" ${decision === "Modify-Approve" ? "modified & approved" : "approved"} by VP (${fmtNum(finalQty)} @ ${fmtINR(finalRate)}).${needsSecond ? " Requires President's second approval (variance/unbudgeted)." : " Routed to Purchase Manager."}${overBy > 0 ? ` Approved quantity exceeds the remaining approved balance by ${fmtNum(overBy)} ${item.unit || "Nos"}.` : ""}`);
   }
 
-  function presidentDecideLine(prId, lineId, decision) {
+  function presidentDecideLine(prId, lineId, decision, modifiedQty, modifiedRate) {
     const ln = getLine(prId, lineId);
     if (!ln) return;
     if (decision === "Reject") {
@@ -459,6 +462,32 @@ export default function BudgetApp({ currentUser, onLogout }) {
     if (decision === "Defer") {
       updateLine(prId, lineId, { presidentDecision: "Deferred", status: "Deferred by President" });
       logAudit(`${prId} line "${ln.itemName}" deferred by President.`);
+      return;
+    }
+    /* Modify & Approve: the President approves at a quantity and/or rate of their own. What the VP's
+       approval committed against the budget item moves to the new figures (an unbudgeted line's head
+       total is worked out from the line itself); the VP's own figures stay on the line as vpQty / vpRate. */
+    if (decision === "Modify-Approve") {
+      const q = modifiedQty !== undefined && modifiedQty !== null && modifiedQty !== "" ? Number(modifiedQty) : ln.finalQty;
+      const r = modifiedRate !== undefined && modifiedRate !== null && modifiedRate !== "" ? Number(modifiedRate) : ln.finalRate;
+      if (!(q > 0) || !(r > 0)) return;
+      if (q === Number(ln.finalQty) && round2(r) === round2(ln.finalRate)) return presidentDecideLine(prId, lineId, "Approve");
+      const item = ln.itemId ? items.find((i) => i.id === ln.itemId) : null;
+      updateLine(prId, lineId, {
+        presidentDecision: "Modified & Approved", status: "Pending Purchase Manager",
+        finalQty: q, finalRate: r, variancePct: item && item.rate > 0 ? ((r - item.rate) / item.rate) * 100 : ln.variancePct,
+        vpQty: ln.vpQty ?? ln.finalQty, vpRate: ln.vpRate ?? ln.finalRate, presidentQty: q, presidentRate: r,
+      });
+      let overBy = 0;
+      if (item) {
+        setItems((prev) => prev.map((it) => it.id === item.id ? {
+          ...it,
+          committedQty: Math.max(0, (it.committedQty || 0) - ln.finalQty + q),
+          committedVal: Math.max(0, (it.committedVal || 0) - ln.finalQty * ln.finalRate + q * r),
+        } : it));
+        overBy = (item.committedQty || 0) - ln.finalQty + q - (item.qty || 0);
+      }
+      logAudit(`${prId} line "${ln.itemName}" modified & approved by President (second approval): ${fmtNum(q)} @ ${fmtRate(r)}, was ${fmtNum(ln.finalQty)} @ ${fmtRate(ln.finalRate)} as approved by the VP. Routed to Purchase Manager.${overBy > 0 ? ` Approved quantity exceeds the item's approved quantity by ${fmtNum(overBy)} ${item.unit || "Nos"}.` : ""}`);
       return;
     }
     updateLine(prId, lineId, { presidentDecision: "Approved", status: "Pending Purchase Manager" });
@@ -741,6 +770,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
   }
 
   function signPO(poId, roleKey) {
+    if (roleKey !== signAs) return; // each signs only their own box
     setPos((prev) => prev.map((po) => po.id === poId ? {
       ...po, signatures: { ...po.signatures, [roleKey]: { by: currentUser.name, date: nowStamp() } },
     } : po));
@@ -804,23 +834,22 @@ export default function BudgetApp({ currentUser, onLogout }) {
   }), [pos, prs, items]);
 
   /* ---------- shared bits ---------- */
+  // every login sees every tab; data/access.js decides which of them it can change
   const TABS = [
-    { id: "dashboard", label: "Executive Dashboard", roles: ALL_ROLES },
-    { id: "freeze", label: "Budget Review & Freeze", roles: ["VP", "President"] },
-    { id: "itemstatus", label: "Approved & Pending Items", roles: ["Department Head", "VP", "President"] },
-    { id: "raisepr", label: "Raise Purchase Requisition", roles: ["Department Head"] },
-    { id: "vpdesk", label: "VP's Desk", roles: ["VP"] },
-    { id: "president2nd", label: "President's 2nd Approval", roles: ["President"] },
-    { id: "pmqueue", label: "Purchase Manager", roles: ["Purchase Manager"] },
-    { id: "issuepo", label: "Issue PO", roles: ["Purchase Manager"] },
-    { id: "calendar", label: "Delivery Calendar", roles: ["Store Manager", "Purchase Manager"] },
-    { id: "receive", label: "Receive Material (GRN)", roles: ["Store Manager"] },
-    { id: "reports", label: "Reports", roles: ALL_ROLES },
-    { id: "audit", label: "Audit Trail", roles: ALL_ROLES },
-    { id: "demo", label: "Demo Scenarios", roles: ALL_ROLES },
+    { id: "dashboard", label: "Executive Dashboard" },
+    { id: "freeze", label: "Budget Review & Freeze" },
+    { id: "itemstatus", label: "Approved & Pending Items" },
+    { id: "raisepr", label: "Raise Purchase Requisition" },
+    { id: "vpdesk", label: "VP's Desk" },
+    { id: "president2nd", label: "President's 2nd Approval" },
+    { id: "pmqueue", label: "Purchase Manager" },
+    { id: "issuepo", label: "Issue PO" },
+    { id: "calendar", label: "Delivery Calendar" },
+    { id: "receive", label: "Receive Material (GRN)" },
+    { id: "reports", label: "Reports" },
+    { id: "audit", label: "Audit Trail" },
+    { id: "demo", label: "Demo Scenarios" },
   ];
-  const visibleTabs = TABS.filter((t) => seesAllTabs || t.roles.includes(role));
-  React.useEffect(() => { if (!visibleTabs.find((t) => t.id === tab)) setTab("dashboard"); }, [role]);
 
   const cardStyle = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18 };
 
@@ -877,12 +906,13 @@ export default function BudgetApp({ currentUser, onLogout }) {
         </div>
         {/* nav */}
         <div style={{ display: "flex", gap: 4, marginTop: 18, flexWrap: "wrap" }}>
-          {visibleTabs.map((t) => {
+          {TABS.map((t) => {
+            // a waiting count is a to-do, so it shows only to whoever can act on that tab
             let badge = "";
-            if (t.id === "vpdesk" && pendingVPCount) badge = ` (${pendingVPCount})`;
-            if (t.id === "president2nd" && pendingPresidentCount) badge = ` (${pendingPresidentCount})`;
-            if (t.id === "pmqueue" && pendingPMCount) badge = ` (${pendingPMCount})`;
-            if (t.id === "issuepo" && readyForPOCount) badge = ` (${readyForPOCount})`;
+            if (t.id === "vpdesk" && pendingVPCount && canEdit(t.id)) badge = ` (${pendingVPCount})`;
+            if (t.id === "president2nd" && pendingPresidentCount && canEdit(t.id)) badge = ` (${pendingPresidentCount})`;
+            if (t.id === "pmqueue" && pendingPMCount && canEdit(t.id)) badge = ` (${pendingPMCount})`;
+            if (t.id === "issuepo" && readyForPOCount && canEdit(t.id)) badge = ` (${readyForPOCount})`;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 style={{
@@ -912,39 +942,44 @@ export default function BudgetApp({ currentUser, onLogout }) {
             View-only access — every screen is open to you, but nothing can be added, edited, approved, signed or received from this login.
           </div>
         )}
+        {!readOnly && ACTION_TABS.has(tab) && !canEdit(tab) && (
+          <div style={{ background: "#EAF0FB", border: "1px solid #C7D6EF", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.blue, fontWeight: 600 }}>
+            View only — your login can see this screen but not change anything on it{tab === "issuepo" && signAs ? ", apart from signing your own box on a PO" : ""}.
+          </div>
+        )}
         {tab === "dashboard" && (
           <DashboardTab {...{ HEADS, headFreeze, headItemTotal, headCommitted, headIncomplete, reconColor, cardStyle, setTab, setSelectedHead, budgetApproved, budgetCommitted, allLines, grns, tolerancePct }}
-            pos={posForView} canOpenFreeze={role === "VP" || role === "President" || seesAllTabs} canOpenTab={(id) => visibleTabs.some((t) => t.id === id)} />
+            pos={posForView} canOpenFreeze canOpenTab={() => true} />
         )}
-        {tab === "freeze" && (role === "VP" || role === "President" || seesAllTabs) && (
+        {tab === "freeze" && (
           <>
-            {(role === "VP" || isAdmin) && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
-            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin, readOnly }} />
+            {canEdit("freeze") && <VPImportPanel {...{ HEADS, importVPItems, cardStyle }} />}
+            <FreezeTab {...{ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk }} readOnly={!canEdit("freeze")} />
           </>
         )}
         {tab === "itemstatus" && (
           <ItemStatusTab {...{ HEADS, items, allLines, pos, grns, audit, cardStyle }} />
         )}
-        {tab === "raisepr" && (role === "Department Head" || seesAllTabs) && (
-          <RaisePRTab {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />
+        {tab === "raisepr" && (
+          <RaisePRTab {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser }} readOnly={!canEdit("raisepr")} />
         )}
-        {tab === "vpdesk" && (role === "VP" || seesAllTabs) && (
-          <VPDeskTab {...{ prs, items, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct, readOnly }} />
+        {tab === "vpdesk" && (
+          <VPDeskTab {...{ prs, items, vpDecideLine, cardStyle, tolerancePct, secondApprovalPct }} readOnly={!canEdit("vpdesk")} />
         )}
-        {tab === "president2nd" && (role === "President" || seesAllTabs) && (
-          <PresidentSecondApprovalTab {...{ prs, presidentDecideLine, cardStyle, secondApprovalPct, readOnly }} />
+        {tab === "president2nd" && (
+          <PresidentSecondApprovalTab {...{ prs, items, presidentDecideLine, cardStyle, secondApprovalPct }} readOnly={!canEdit("president2nd")} />
         )}
-        {tab === "pmqueue" && (role === "Purchase Manager" || seesAllTabs) && (
-          <PurchaseManagerTab {...{ prs, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle, readOnly }} />
+        {tab === "pmqueue" && (
+          <PurchaseManagerTab {...{ prs, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle }} readOnly={!canEdit("pmqueue")} />
         )}
-        {tab === "issuepo" && (role === "Purchase Manager" || seesAllTabs) && (
-          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, unitBlock, cardStyle, role, isAdmin, readOnly }} pos={posForView} />
+        {tab === "issuepo" && (
+          <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, signAs, unitBlock, cardStyle }} readOnly={!canEdit("issuepo")} pos={posForView} />
         )}
-        {tab === "calendar" && (role === "Store Manager" || role === "Purchase Manager" || seesAllTabs) && (
-          <DeliveryCalendarTab {...{ cardStyle, signPO, role, isAdmin }} pos={posForView} />
+        {tab === "calendar" && (
+          <DeliveryCalendarTab {...{ cardStyle, signPO, signAs }} pos={posForView} />
         )}
-        {tab === "receive" && (role === "Store Manager" || seesAllTabs) && (
-          <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle, readOnly }} />
+        {tab === "receive" && (
+          <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle }} readOnly={!canEdit("receive")} />
         )}
         {tab === "reports" && (
           <ReportsTab {...{ HEADS, headFreeze, items, allLines, grns, cardStyle }} pos={posForView} />
@@ -953,7 +988,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <AuditTab {...{ audit, cardStyle }} />
         )}
         {tab === "demo" && (
-          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, role, isAdmin, readOnly, cardStyle }} />
+          <DemoTab {...{ items, HEADS, headFreeze, freezeHead, submitBundledPR, vpDecideLine, setTab, cardStyle }} readOnly={!canEdit("demo")} />
         )}
       </div>
     </div>

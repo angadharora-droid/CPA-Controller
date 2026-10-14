@@ -4,7 +4,7 @@ import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
 import { Badge, ReconIndicator, MiniStat } from "../ui.jsx";
 
 /* ================= BUDGET REVIEW & FREEZE ================= */
-export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, role, isAdmin, readOnly }) {
+export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead, setSelectedHead, filteredItems, deletedItemsForHead, updateItem, setItemApproval, updateItemBrand, query, setQuery, subCategoryFilter, setSubCategoryFilter, subCategoryOptions, cardStyle, reconColor, headItemTotal, headIncomplete, headCommitted, tolerancePct, setTolerancePct, secondApprovalPct, setSecondApprovalPct, setHeadCeiling, deleteItems, restoreItem, moveItemsToHead, renameItemName, renameCategoryBulk, readOnly }) {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
   const [showDeleted, setShowDeleted] = useState(false);
@@ -15,7 +15,8 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
   const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const frozen = (headFreeze[selectedHead] || "Not Frozen") !== "Not Frozen";
-  const canFreeze = role === "President" || isAdmin;
+  // edit rights on this tab (data/access.js) cover editing items and freezing heads alike
+  const canFreeze = !readOnly;
   // a view-only login sees every row exactly as it reads once frozen: plain values, no inputs
   const locked = frozen || readOnly;
   const color = reconColor(selectedHead);
@@ -102,7 +103,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
       {/* main */}
       <div style={{ flex: 1, minWidth: 320 }}>
         <div style={{ background: "#EAF0FB", border: `1px solid #C7D6EF`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#2E5FA3" }}>
-          {readOnly ? "View-only access — browse every budget head and its items. Nothing on this screen can be edited or frozen from this login." : isAdmin ? "You have full administrative access — edit items freely and freeze heads directly. Freezing a head locks it for departments to requisition against." : role === "VP" ? "You're preparing this submission for the President to freeze — edit items freely, then hand off." : "You're reviewing the VP's submission. Freezing a head locks it for departments to requisition against."}
+          {readOnly ? "View only — browse every budget head and its items. Nothing on this screen can be edited or frozen from this login." : "Edit items freely and freeze heads once the item list is complete. Freezing a head locks it for departments to requisition against."}
         </div>
         <div style={{ ...cardStyle, marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
@@ -143,7 +144,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                   <button onClick={() => freezeHead(selectedHead, "Not Approved")} style={btnStyle(C.red)}>Not Approved</button>
                 </>
               ) : (
-                <span style={{ fontSize: 12.5, color: "#6B7280" }}>{readOnly ? "This budget head has not been frozen yet." : "Freezing is reserved for the President — hand off once the item list is complete."}</span>
+                <span style={{ fontSize: 12.5, color: "#6B7280" }}>This budget head has not been frozen yet.</span>
               )}
               {(headIncomplete[selectedHead] > 0 || headItemTotal[selectedHead] > head.ceil || dupes.length > 0) && (
                 <span style={{ fontSize: 11.5, color: C.amber, marginLeft: 6 }}>⚠ Missing data, ceiling breach, or duplicates detected — review before freezing "Fully Frozen".</span>
@@ -227,7 +228,7 @@ export default function FreezeTab({ HEADS, headFreeze, freezeHead, selectedHead,
                 ))}
                 {pageItems.length === 0 && (
                   <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#9AA1AC" }}>
-                    {role === "VP" ? "No items in this head yet — import the budget submission workbook above." : "No items in this head yet — awaiting the VP's budget submission."}
+                    {!readOnly ? "No items in this head yet — import the budget submission workbook above." : "No items in this head yet — awaiting the VP's budget submission."}
                   </td></tr>
                 )}
               </tbody>
