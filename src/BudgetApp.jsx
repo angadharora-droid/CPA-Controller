@@ -18,6 +18,7 @@ import PurchaseManagerTab from "./components/tabs/PurchaseManagerTab.jsx";
 import IssuePOTab from "./components/tabs/IssuePOTab.jsx";
 import DeliveryCalendarTab from "./components/tabs/DeliveryCalendarTab.jsx";
 import ReceiveGoodsTab from "./components/tabs/ReceiveGoodsTab.jsx";
+import ReportsTab from "./components/tabs/ReportsTab.jsx";
 import AuditTab from "./components/tabs/AuditTab.jsx";
 import DemoTab from "./components/tabs/DemoTab.jsx";
 
@@ -814,6 +815,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     { id: "issuepo", label: "Issue PO", roles: ["Purchase Manager"] },
     { id: "calendar", label: "Delivery Calendar", roles: ["Store Manager", "Purchase Manager"] },
     { id: "receive", label: "Receive Material (GRN)", roles: ["Store Manager"] },
+    { id: "reports", label: "Reports", roles: ALL_ROLES },
     { id: "audit", label: "Audit Trail", roles: ALL_ROLES },
     { id: "demo", label: "Demo Scenarios", roles: ALL_ROLES },
   ];
@@ -921,7 +923,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           </>
         )}
         {tab === "itemstatus" && (
-          <ItemStatusTab {...{ HEADS, items, cardStyle }} />
+          <ItemStatusTab {...{ HEADS, items, allLines, pos, grns, cardStyle }} />
         )}
         {tab === "raisepr" && (role === "Department Head" || seesAllTabs) && (
           <RaisePRTab {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />
@@ -943,6 +945,9 @@ export default function BudgetApp({ currentUser, onLogout }) {
         )}
         {tab === "receive" && (role === "Store Manager" || seesAllTabs) && (
           <ReceiveGoodsTab {...{ pos, recordGRN, updateGRNTransport, grns, cardStyle, readOnly }} />
+        )}
+        {tab === "reports" && (
+          <ReportsTab {...{ HEADS, headFreeze, items, allLines, grns, cardStyle }} pos={posForView} />
         )}
         {tab === "audit" && (
           <AuditTab {...{ audit, cardStyle }} />
