@@ -39,4 +39,5 @@ export const cellInput = { width: 72, padding: "4px 6px", border: `1px solid ${C
 export const cardBase = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12 };
 export const inputStyle = { width: "100%", padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };
 export const toggleBtn = { border: `1px solid ${C.line}`, background: "#fff", borderRadius: 7, padding: "6px 12px", fontSize: 12, cursor: "pointer" };
-export const toggleActive = { background: C.navy, color: "#fff", borderColor: C.navy };
+// a whole `border`, like toggleBtn's: React clearing a lone borderColor on deselect would leave the border black
+export const toggleActive = { background: C.navy, color: "#fff", border: `1px solid ${C.navy}` };
