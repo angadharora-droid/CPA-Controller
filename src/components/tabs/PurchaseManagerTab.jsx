@@ -17,7 +17,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmSetQty, pmSetUnit
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. The quantity can be lowered if fewer are needed, never raised; the units not bought go back to the approved balance. If an item is bought in another unit (cloth by the metre), pick the unit and type the quantity in it: the rate follows so the amount stays the same, and the budget item switches to that unit too. Once a line is marked Ready for PO, use Edit to change its rate, quantity or unit; after its PO is issued, use Edit on the Issue PO tab (until goods are received). Specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. The quantity can be adjusted up or down as needed; a reduction sends the units not bought back to the approved balance. If an item is bought in another unit (cloth by the metre), pick the unit and type the quantity in it: the rate follows so the amount stays the same, and the budget item switches to that unit too. Once a line is marked Ready for PO, use Edit to change its rate, quantity or unit; after its PO is issued, use Edit on the Issue PO tab (until goods are received). Specs are locked at this stage.</div>
       {relevantPrs.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PR no., item, head, vendor, status…" /></div>}
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.length > 0 && !relevantPrs.some((pr) => shown(pr).length) && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No lines match "{query.trim()}".</div>}
@@ -73,12 +73,13 @@ function PMLineRow({ pr, ln, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkRe
     // pmSetRate refuses these, so show the rate that is still in force
     if (isNaN(n) || n <= 0) setRate(round2(current));
   }
-  const qtyTooHigh = open && !converting && Number(qty) > Number(ln.finalQty);
-  // the quantity only comes down; false when a cut was typed but not confirmed
+  const qtyInvalid = open && Number(qty) <= 0;
+  // false when an invalid quantity was typed, or when a cut was typed but not confirmed
   function commitQty() {
     const n = Number(qty);
     if (n === Number(ln.finalQty)) return true;
-    if (isNaN(n) || n <= 0 || n > ln.finalQty || !confirmQtyCut([{ itemName: ln.itemName, was: ln.finalQty, n }])) { setQty(ln.finalQty); return false; }
+    if (isNaN(n) || n <= 0) { setQty(ln.finalQty); return false; }
+    if (n < ln.finalQty && !confirmQtyCut([{ itemName: ln.itemName, was: ln.finalQty, n }])) { setQty(ln.finalQty); return false; }
     pmSetQty(pr.id, ln.lineId, n);
     return true;
   }
@@ -101,13 +102,13 @@ function PMLineRow({ pr, ln, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkRe
       <td style={{ padding: "6px 10px", fontWeight: 600 }}>{ln.itemName}<div style={{ fontSize: 10.5, color: "#9AA1AC", fontWeight: 400 }}>{ln.headName}{ln.vendorDetails ? ` · ${ln.vendorDetails}` : ""}</div></td>
       <td style={{ padding: "6px 6px", textAlign: "right" }}>
         {open
-          ? <input type="number" min="0" max={converting ? undefined : ln.finalQty} value={qty} placeholder={converting ? `in ${unit}` : undefined}
+          ? <input type="number" min="0" value={qty} placeholder={converting ? `in ${unit}` : undefined}
               onChange={(e) => setQty(e.target.value)} onBlur={ready || converting ? undefined : commitQty}
-              onKeyDown={keys} style={{ ...cellInput, width: 64, border: `1px solid ${qtyTooHigh || (converting && !ratio) ? C.red : C.line}` }} />
+              onKeyDown={keys} style={{ ...cellInput, width: 64, border: `1px solid ${qtyInvalid || (converting && !ratio) ? C.red : C.line}` }} />
           : <span style={{ padding: "0 4px" }}>{fmtNum(ln.finalQty)}</span>}
-        {qtyTooHigh && <div style={warn}>Can't go above {fmtNum(ln.finalQty)}</div>}
+        {qtyInvalid && <div style={warn}>Enter a quantity above 0</div>}
         {converting && <div style={hint}>was {fmtNum(ln.finalQty)} {lineUnit}</div>}
-        {!converting && ln.vpQty > ln.finalQty && <div style={hint}>VP approved {fmtNum(ln.vpQty)}</div>}
+        {!converting && ln.vpQty && ln.vpQty !== ln.finalQty && <div style={hint}>VP approved {fmtNum(ln.vpQty)}</div>}
         {!converting && ln.unitWas && <div style={hint}>was {fmtNum(ln.unitWas.qty)} {ln.unitWas.unit}</div>}
       </td>
       <td style={{ padding: "6px 6px" }}>
