@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { C, btnStyle } from "../../theme.js";
 import { matchesQuery } from "../../utils/search.js";
-import { SearchBox } from "../ui.jsx";
+import { Modal, SearchBox } from "../ui.jsx";
 import POView from "../POView.jsx";
 
 /* ================= DELIVERY CALENDAR ================= */
@@ -41,7 +41,12 @@ export default function DeliveryCalendarTab({ pos, cardStyle, signPO, role, isAd
           </div>
         ))}
       </div>
-      {viewPo && <div style={{ marginTop: 16 }}><POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} /></div>}
+      {/* opens over the calendar: below every date card it was off-screen, so the button seemed to do nothing */}
+      {viewPo && (
+        <Modal title={`${viewPo.id} — ${viewPo.supplier}`} onClose={() => setViewPoId(null)}>
+          <POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} />
+        </Modal>
+      )}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
 import { C, th, toggleBtn, toggleActive, btnStyle } from "../../theme.js";
-import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
-import { fmtDateShort, todayISO } from "../../utils/po.js";
+import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
+import { fmtDateShort } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { buildReport, transportOnce } from "../../utils/report.js";
+import { money, count, downloadWorkbook } from "../../utils/excel.js";
 import { Badge, MiniStat, SearchBox } from "../ui.jsx";
 
 const VIEWS = [
@@ -92,7 +92,7 @@ export default function ReportsTab({ HEADS, headFreeze, items, allLines, pos, gr
           <div style={{ fontSize: 12.5, color: "#9AA1AC" }}>Every budget item followed from its approved budget through requisition, approval and purchase order to goods received. Amounts are before GST.</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <button onClick={() => downloadWorkbook(scoped, headFilter)} style={btnStyle(C.navy)}>Download Excel</button>
+          <button onClick={() => downloadReport(scoped, headFilter)} style={btnStyle(C.navy)}>Download Excel</button>
           <div style={{ ...small, marginTop: 4 }}>{headFilter === "All" ? "All budget heads" : headFilter} · 4 sheets</div>
         </div>
       </div>
@@ -361,12 +361,8 @@ function GrnTable({ rows, empty }) {
   );
 }
 
-/* ---------- Excel workbook ----------
-   Each sheet is a list of [header, value of a row, column width]. Figures go in as numbers so they
-   can be summed and filtered in Excel; dates as they print on the PO (18-Aug-26). */
+/* ---------- Excel workbook (sheet columns as utils/excel.js describes them) ---------- */
 
-const money = (v) => (has(v) ? round2(v) : "");
-const count = (v) => (has(v) ? Math.round(Number(v) * 1000) / 1000 : "");
 const onPO = (r, v) => (r.poId ? v : "");
 
 const HEAD_SHEET = [
@@ -474,14 +470,7 @@ const GRN_SHEET = [
   ["Transport Total (₹)", (r) => (r.transport ? money(r.transport.total) : ""), 14],
 ];
 
-function sheetOf(cols, rows, autofilter = true) {
-  const ws = XLSX.utils.aoa_to_sheet([cols.map((c) => c[0]), ...rows.map((r) => cols.map((c) => c[1](r)))]);
-  ws["!cols"] = cols.map((c) => ({ wch: c[2] }));
-  if (autofilter && rows.length) ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: cols.length - 1 } }) };
-  return ws;
-}
-
-function downloadWorkbook(scoped, headFilter) {
+function downloadReport(scoped, headFilter) {
   const heads = [...scoped.heads];
   if (heads.length > 1) {
     heads.push({
@@ -489,11 +478,10 @@ function downloadWorkbook(scoped, headFilter) {
       ...Object.fromEntries(["items", "unbudgetedItems", "ceiling", "budgetVal", "committed", "poVal", "receivedVal", "toReceiveVal", "balance"].map((k) => [k, sumOf(scoped.heads, k)])),
     });
   }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheetOf(HEAD_SHEET, heads, false), "Budget Heads");
-  XLSX.utils.book_append_sheet(wb, sheetOf(ITEM_SHEET, scoped.items), "Items");
-  XLSX.utils.book_append_sheet(wb, sheetOf(LINE_SHEET, scoped.lines), "PR-PO-GRN Lines");
-  XLSX.utils.book_append_sheet(wb, sheetOf(GRN_SHEET, transportOnce(scoped.grns)), "GRN Register");
-  const scope = headFilter === "All" ? "All Heads" : headFilter.replace(/[\\/:*?"<>|]/g, "-");
-  XLSX.writeFile(wb, `Budget to GRN Report - ${scope} - ${todayISO()}.xlsx`);
+  downloadWorkbook("Budget to GRN Report", headFilter === "All" ? "All Heads" : headFilter, [
+    { name: "Budget Heads", cols: HEAD_SHEET, rows: heads, autofilter: false },
+    { name: "Items", cols: ITEM_SHEET, rows: scoped.items },
+    { name: "PR-PO-GRN Lines", cols: LINE_SHEET, rows: scoped.lines },
+    { name: "GRN Register", cols: GRN_SHEET, rows: transportOnce(scoped.grns) },
+  ]);
 }
