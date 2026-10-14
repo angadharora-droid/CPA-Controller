@@ -1,11 +1,50 @@
 import { useState, useMemo } from "react";
-import { C, th, thR, toggleBtn, toggleActive } from "../../theme.js";
-import { fmtINR, fmtNum, fmtRate } from "../../utils/format.js";
+import { C, th, thR, toggleBtn, toggleActive, btnStyle } from "../../theme.js";
+import { fmtNum, fmtRate } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { buildLineRows, buildItemRows } from "../../utils/report.js";
+import { money, count, downloadWorkbook } from "../../utils/excel.js";
 import { Badge } from "../ui.jsx";
 
 const sub = { fontSize: 10.5, color: "#9AA1AC", whiteSpace: "nowrap" };
+
+/* Frozen, approved and complete: what departments can requisition against. Everything else is pending. */
+const isApproved = (it) => it.freezeState !== "Not Frozen" && it.approvalStatus === "Approved" && it.status === "Complete";
+
+/* What a pending item is waiting for. */
+function pendingReason(it) {
+  if (it.freezeState === "Not Frozen") return "Awaiting Freeze";
+  return it.status !== "Complete" ? it.status : it.approvalStatus;
+}
+
+/* The two sheets of the download, in the columns described in utils/excel.js. A row is the item with
+   its progress (`p`) alongside. */
+const ITEM_COLS = [
+  ["Budget Head", (r) => r.head, 24],
+  ["Sub-category", (r) => r.sub || "", 18],
+  ["Item", (r) => r.name, 32],
+  ["Brand", (r) => r.brand || "", 14],
+  ["Model / Specs", (r) => r.spec || "", 30],
+  ["Unit", (r) => r.unit || "Nos", 7],
+];
+const APPROVED_SHEET = [
+  ...ITEM_COLS,
+  ["Approved Qty", (r) => count(r.qty), 11],
+  ["Remaining Qty", (r) => count(r.p ? r.p.remaining : r.qty), 11],
+  ["Awaiting Approval", (r) => count(r.p ? r.p.pendingQty : 0), 11],
+  ["On PO", (r) => count(r.p ? r.p.poQty : 0), 9],
+  ["Received", (r) => count(r.p ? r.p.receivedQty : 0), 9],
+  ["Rate (₹)", (r) => money(r.rate), 11],
+  ["Value (₹)", (r) => money(r.val), 13],
+  ["Status", (r) => r.freezeState, 18],
+];
+const PENDING_SHEET = [
+  ...ITEM_COLS,
+  ["Qty", (r) => count(r.qty), 9],
+  ["Rate (₹)", (r) => money(r.rate), 11],
+  ["Value (₹)", (r) => money(r.val), 13],
+  ["Status", pendingReason, 24],
+];
 
 /* ================= APPROVED & PENDING ITEMS (Department Head view) ================= */
 export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardStyle }) {
@@ -20,20 +59,29 @@ export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardS
     return m;
   }, [HEADS, items, allLines, pos, grns]);
 
+  const inHead = useMemo(() => items.filter((it) => !it.deleted && (headFilter === "All" || it.head === headFilter)), [items, headFilter]);
   const list = useMemo(() => {
-    let l = items.filter((it) => !it.deleted);
-    if (view === "approved") l = l.filter((it) => it.freezeState !== "Not Frozen" && it.approvalStatus === "Approved" && it.status === "Complete");
-    else l = l.filter((it) => it.freezeState === "Not Frozen" || it.approvalStatus !== "Approved" || it.status !== "Complete");
-    if (headFilter !== "All") l = l.filter((it) => it.head === headFilter);
+    let l = inHead.filter((it) => isApproved(it) === (view === "approved"));
     if (query.trim()) l = l.filter((it) => matchesQuery(query, it.name, it.head, it.sub, it.brand, it.spec));
     return l;
-  }, [items, headFilter, query, view]);
+  }, [inHead, query, view]);
+
+  // both lists, for the head picked (the search only narrows the screen), as on the Reports tab
+  function download() {
+    const rows = inHead.map((it) => ({ ...it, p: progress.get(it.id) }));
+    downloadWorkbook("Approved & Pending Items", headFilter === "All" ? "All Heads" : headFilter, [
+      { name: "Approved Items", cols: APPROVED_SHEET, rows: rows.filter(isApproved) },
+      { name: "Pending Items", cols: PENDING_SHEET, rows: rows.filter((r) => !isApproved(r)) },
+    ]);
+  }
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={() => setView("approved")} style={{ ...toggleBtn, ...(view === "approved" ? toggleActive : {}) }}>Approved Items</button>
         <button onClick={() => setView("pending")} style={{ ...toggleBtn, ...(view === "pending" ? toggleActive : {}) }}>Pending Items</button>
+        <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#9AA1AC" }}>{headFilter === "All" ? "All heads" : headFilter} · both lists</span>
+        <button onClick={download} style={btnStyle(C.navy)}>Download Excel</button>
       </div>
       <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
         <div style={{ padding: 12, borderBottom: `1px solid ${C.line}`, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -87,7 +135,7 @@ export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardS
                   <td style={{ padding: "7px 10px" }}>
                     {view === "approved"
                       ? <Badge bg="#E9F6EF" fg={C.green}>{it.freezeState}</Badge>
-                      : <Badge bg="#FDF2E3" fg={C.amber}>{it.freezeState === "Not Frozen" ? "Awaiting Freeze" : it.status !== "Complete" ? it.status : it.approvalStatus}</Badge>}
+                      : <Badge bg="#FDF2E3" fg={C.amber}>{pendingReason(it)}</Badge>}
                   </td>
                 </tr>
                 );

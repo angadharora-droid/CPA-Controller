@@ -1,10 +1,10 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, useRef, useEffect } from "react";
 import { C, th, thR, inputStyle, cellInput, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
 import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked, lineHasOwnGst } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { unitOf } from "../../utils/units.js";
-import { Field, SearchBox, UnitSelect, confirmQtyCut, confirmUnitChange } from "../ui.jsx";
+import { Field, Modal, SearchBox, UnitSelect, confirmQtyCut, confirmUnitChange } from "../ui.jsx";
 import { GstRateField, GstTypeField, LineGstSelect, TotalRow } from "../GstFields.jsx";
 import POView from "../POView.jsx";
 
@@ -81,6 +81,12 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
   const [editForm, setEditForm] = useState(BLANK_FORM);
   // a PO stops being editable the moment goods are received against it
   const editPO = pos.find((p) => p.id === editId && !poIsLocked(p)) || null;
+  // the edit form sits above the long list of issued POs: bring it into view when an Edit is clicked down there
+  const editRef = useRef(null);
+  useEffect(() => { if (editId && editRef.current) editRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }, [editId]);
+  // a PO opened from that list shows in a window over it, for the same reason
+  const [viewPoId, setViewPoId] = useState(null);
+  const viewPo = pos.find((p) => p.id === viewPoId) || null;
 
   function toggle(lineKey) {
     setSelected((prev) => {
@@ -185,7 +191,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
       )}
 
       {editPO && (
-        <div style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold }}>
+        <div ref={editRef} style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold, scrollMarginTop: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
           <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
             Rates, quantities, units, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be lowered but never raised; the units not bought go back to the approved balance. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
@@ -220,7 +226,8 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
         </div>
       )}
 
-      {lastPO && !editPO && (
+      {/* not while a PO is open in the window: each open PO adds its own print copy, and both would print */}
+      {lastPO && !editPO && !viewPo && (
         <>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             {poIsLocked(lastPO)
@@ -244,7 +251,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
               <span>{po.id} — {po.supplier} — {po.lines.length} item(s){po.editedAt && <span style={{ color: "#9AA1AC" }}> · edited {po.editedAt}</span>}</span>
               <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ color: "#9AA1AC" }}>Due {po.deliveryDate}</span>
-                <button onClick={() => { setEditId(null); setLastPOId(po.id); }} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
+                <button onClick={() => setViewPoId(po.id)} style={{ ...btnStyle(C.navy), fontSize: 11, padding: "4px 9px" }}>View</button>
                 {poIsLocked(po)
                   ? <LockedNote />
                   : !readOnly && <button onClick={() => startEdit(po)} style={{ ...btnStyle(C.gold), fontSize: 11, padding: "4px 9px" }}>Edit</button>}
@@ -252,6 +259,17 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, unitBl
             </div>
           ))}
         </div>
+      )}
+
+      {viewPo && (
+        <Modal title={`${viewPo.id} — ${viewPo.supplier}`} onClose={() => setViewPoId(null)}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            {poIsLocked(viewPo)
+              ? <LockedNote />
+              : !readOnly && <button onClick={() => { setViewPoId(null); startEdit(viewPo); }} style={{ ...btnStyle(C.gold), fontSize: 11.5, padding: "6px 12px" }}>Edit this PO</button>}
+          </div>
+          <POView po={viewPo} signPO={signPO} role={role} isAdmin={isAdmin} />
+        </Modal>
       )}
     </div>
   );

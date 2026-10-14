@@ -1,4 +1,5 @@
-import { C, cellInput } from "../theme.js";
+import { useEffect } from "react";
+import { C, cellInput, btnStyle } from "../theme.js";
 import { fmtNum, fmtRate } from "../utils/format.js";
 import { UNITS } from "../utils/units.js";
 
@@ -69,6 +70,29 @@ export function MiniStat({ label, value, accent }) {
 
 export function Field({ label, children }) {
   return <div style={{ marginBottom: 10 }}><label style={{ fontSize: 11.5, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 3 }}>{label}</label>{children}</div>;
+}
+
+/* A window over the page, so what is opened shows where the user is looking instead of somewhere
+   down a long list. Closes on ✕, Esc or a click outside. Rendered in place, not in a body portal:
+   printing hides the app (#root) and with it this window, so a PO prints only its own copy. */
+export function Modal({ title, onClose, children, width = 960 }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(11,30,54,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 12px", boxSizing: "border-box" }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true"
+        style={{ background: C.bg, borderRadius: 12, width: "100%", maxWidth: width, maxHeight: "94vh", overflowY: "auto", overscrollBehavior: "contain", boxShadow: "0 18px 50px rgba(0,0,0,0.3)" }}>
+        <div style={{ position: "sticky", top: 0, zIndex: 1, background: C.navy, color: "#fff", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, borderRadius: "12px 12px 0 0" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+          <button onClick={onClose} style={{ ...btnStyle("transparent"), border: `1px solid ${C.gold}`, padding: "5px 12px", flexShrink: 0 }}>✕ Close</button>
+        </div>
+        <div style={{ padding: 14 }}>{children}</div>
+      </div>
+    </div>
+  );
 }
 
 /* Free-text filter box shown above a list; pair it with matchesQuery() from utils/search.js. */
