@@ -5,7 +5,7 @@ import { fmtDateShort } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { buildReport, transportOnce } from "../../utils/report.js";
 import { money, count, downloadWorkbook } from "../../utils/excel.js";
-import { Badge, MiniStat, SearchBox } from "../ui.jsx";
+import { Badge, MiniStat, SearchBox, StageBadge } from "../ui.jsx";
 
 const VIEWS = [
   { id: "heads", label: "Budget Heads", count: "head(s)", search: "Search budget heads…" },
@@ -27,20 +27,6 @@ const headRow = { textAlign: "left", color: "#6B7280", fontSize: 10.5, textTrans
 const has = (v) => v !== null && v !== undefined && v !== "";
 const qty = (n, unit) => (has(n) ? `${fmtNum(n)} ${unit}` : "—");
 const sumOf = (rows, k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
-
-function stageTone(stage) {
-  if (/Rejected/.test(stage)) return ["#FCEAEA", C.red];
-  if (/Deferred/.test(stage)) return ["#F0F0EF", C.grey];
-  if (stage === "Received") return ["#E9F6EF", C.green];
-  if (stage === "PO Issued" || stage === "Part Received") return ["#E9EDF4", C.navy];
-  if (stage === "Pending Purchase Manager" || stage === "Ready for PO") return ["#EAF0FB", C.blue];
-  return ["#FDF2E3", C.amber];
-}
-
-function StageBadge({ stage }) {
-  const [bg, fg] = stageTone(stage);
-  return <Badge bg={bg} fg={fg}>{stage}</Badge>;
-}
 
 const Unbudgeted = () => <> <Badge bg="#FDF2E3" fg={C.amber}>Unbudgeted</Badge></>;
 

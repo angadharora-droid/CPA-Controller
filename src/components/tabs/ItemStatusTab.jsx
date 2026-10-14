@@ -4,7 +4,8 @@ import { fmtNum, fmtRate } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { buildLineRows, buildItemRows } from "../../utils/report.js";
 import { money, count, downloadWorkbook } from "../../utils/excel.js";
-import { Badge } from "../ui.jsx";
+import { Badge, Modal } from "../ui.jsx";
+import ItemHistory from "../ItemHistory.jsx";
 
 const sub = { fontSize: 10.5, color: "#9AA1AC", whiteSpace: "nowrap" };
 
@@ -47,17 +48,20 @@ const PENDING_SHEET = [
 ];
 
 /* ================= APPROVED & PENDING ITEMS (Department Head view) ================= */
-export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardStyle }) {
+export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, audit, cardStyle }) {
   const [headFilter, setHeadFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [view, setView] = useState("approved"); // approved | pending
+  const [openId, setOpenId] = useState(null); // the item whose history is open
 
   // how far each approved item has got: what is left to requisition, what is on PO and what has come in
+  const lineRows = useMemo(() => buildLineRows({ items, allLines, pos, grns }), [items, allLines, pos, grns]);
   const progress = useMemo(() => {
     const m = new Map();
-    buildItemRows({ HEADS, items, lineRows: buildLineRows({ items, allLines, pos, grns }) }).forEach((r) => { if (r.itemId) m.set(r.itemId, r); });
+    buildItemRows({ HEADS, items, lineRows }).forEach((r) => { if (r.itemId) m.set(r.itemId, r); });
     return m;
-  }, [HEADS, items, allLines, pos, grns]);
+  }, [HEADS, items, lineRows]);
+  const openItem = items.find((it) => it.id === openId) || null;
 
   const inHead = useMemo(() => items.filter((it) => !it.deleted && (headFilter === "All" || it.head === headFilter)), [items, headFilter]);
   const list = useMemo(() => {
@@ -91,7 +95,7 @@ export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardS
           </select>
           <input placeholder="Search item, head, brand or specs…" value={query} onChange={(e) => setQuery(e.target.value)}
             style={{ flex: 1, minWidth: 160, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13 }} />
-          <span style={{ alignSelf: "center", fontSize: 12, color: "#9AA1AC" }}>{list.length} item(s)</span>
+          <span style={{ alignSelf: "center", fontSize: 12, color: "#9AA1AC" }}>{list.length} item(s) · click one for its PRs, POs and GRNs</span>
         </div>
         <div style={{ overflowX: "auto", maxHeight: 560, overflowY: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -113,7 +117,8 @@ export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardS
                 const p = progress.get(it.id);
                 const unit = it.unit || "Nos";
                 return (
-                <tr key={it.id} style={{ borderTop: "1px solid #F0EFEA" }}>
+                <tr key={it.id} onClick={() => setOpenId(it.id)} title="Open its requisitions, POs and GRNs"
+                  style={{ borderTop: "1px solid #F0EFEA", cursor: "pointer", background: openId === it.id ? "#FFFBF0" : undefined }}>
                   <td style={{ padding: "7px 10px", fontWeight: 600 }}>{it.name}</td>
                   <td style={{ padding: "7px 10px", color: "#6B7280" }}>{it.head}</td>
                   <td style={{ padding: "7px 10px", color: "#6B7280" }}>{it.brand || "—"}</td>
@@ -145,6 +150,11 @@ export default function ItemStatusTab({ HEADS, items, allLines, pos, grns, cardS
           </table>
         </div>
       </div>
+      {openItem && (
+        <Modal title={`${openItem.name} — ${openItem.head}`} onClose={() => setOpenId(null)} width={1180}>
+          <ItemHistory item={openItem} progress={progress.get(openItem.id)} lines={lineRows.filter((r) => r.itemId === openItem.id)} pos={pos} audit={audit} />
+        </Modal>
+      )}
     </div>
   );
 }

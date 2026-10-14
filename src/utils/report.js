@@ -44,7 +44,7 @@ export function buildLineRows({ items, allLines, pos, grns }) {
   grns.forEach((g) => (g.lines || []).forEach((gl) => {
     const k = `${g.poId}::${gl.lineId}`;
     if (!receipts.has(k)) receipts.set(k, []);
-    receipts.get(k).push({ id: g.id, billNo: g.billNo || "", billDate: g.billDate || "", receivedDate: g.receivedDate || "", qty: num(gl.qtyReceived) });
+    receipts.get(k).push({ id: g.id, billNo: g.billNo || "", billDate: g.billDate || "", receivedDate: g.receivedDate || "", qty: num(gl.qtyReceived), recordedBy: g.recordedBy || "", ts: g.ts || "" });
   }));
 
   return allLines.map((l) => {
@@ -64,8 +64,10 @@ export function buildLineRows({ items, allLines, pos, grns }) {
       unit: unitOf(l, item),
       budgetQty: item ? item.qty : null, budgetRate: item ? item.rate : null,
       requestedQty: num(l.requestedQty), requestedRate: num(l.requestedRate),
-      lane: raisedLane(l) === "exception" ? "Exception" : "Good to Approve",
+      lane: raisedLane(l) === "exception" ? "Exception" : "Good to Approve", reasons: l.reasons || [],
       vpDecision: l.vpDecision || "", presidentDecision: l.presidentDecision || "",
+      // the VP's own figure, when the Purchase Manager has since cut the quantity
+      vpQty: l.vpQty !== undefined && l.vpQty !== null ? num(l.vpQty) : null, finalQty: num(l.finalQty),
       approvedQty: lineCommits(l) ? num(l.finalQty) : 0, approvedRate: num(l.finalRate),
       pmRate: l.pmRate ? num(l.pmRate) : null,
       status: l.status || "", stage: stageOf(l, poQty, receivedQty),
@@ -184,6 +186,40 @@ export function transportOnce(grnRows) {
     seen.add(r.grnId);
     return r;
   });
+}
+
+/* Who decided each requisition line and who issued each PO. The lines and POs keep only the decision,
+   so the names and times are read back from the audit trail, which logs every one of them:
+     `PR-CPA-0004 line "Shot glasses" approved by VP (36 @ ₹116). …`   (also modified & approved,
+     rejected, deferred; by VP or by President)
+     `"Shot glasses" (PR-CPA-0004) marked Ready for PO by Purchase Manager at ₹116.`
+     `PO-CPA-0002 issued by Purchase Manager for 4 line item(s) …`
+   Returns { decisions: "prId::itemName" -> [{ action, role, who, ts }] oldest first,
+             ready: "prId::itemName" -> { who, ts }, issued: poId -> { who, ts } }. */
+const DECISION = /^(\S+) line "(.*)" (modified & approved|approved|rejected|deferred) by (VP|President)\b/;
+const READY = /^"(.*)" \((\S+)\) marked Ready for PO by /;
+const ISSUED = /^(\S+) issued by Purchase Manager\b/;
+
+export function whoFromAudit(audit) {
+  const decisions = new Map();
+  const ready = new Map();
+  const issued = new Map();
+  // the audit trail is newest first; walk it oldest first so the latest entry wins and lists read in order
+  for (let i = audit.length - 1; i >= 0; i--) {
+    const a = audit[i];
+    const text = String(a.text || "");
+    const who = { who: a.who || "", ts: a.ts || "" };
+    let m = DECISION.exec(text);
+    if (m) {
+      const k = `${m[1]}::${m[2]}`;
+      if (!decisions.has(k)) decisions.set(k, []);
+      decisions.get(k).push({ action: m[3], role: m[4], ...who });
+      continue;
+    }
+    if ((m = READY.exec(text))) { ready.set(`${m[2]}::${m[1]}`, who); continue; }
+    if ((m = ISSUED.exec(text))) issued.set(m[1], who);
+  }
+  return { decisions, ready, issued };
 }
 
 /* The whole report. */

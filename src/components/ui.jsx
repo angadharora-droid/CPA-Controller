@@ -43,6 +43,21 @@ export function Badge({ children, bg, fg }) {
   );
 }
 
+/* Where a requisition line stands (its status, or PO Issued / Part Received / Received once on a PO). */
+function stageTone(stage) {
+  if (/Rejected/.test(stage)) return ["#FCEAEA", C.red];
+  if (/Deferred/.test(stage)) return ["#F0F0EF", C.grey];
+  if (stage === "Received") return ["#E9F6EF", C.green];
+  if (stage === "PO Issued" || stage === "Part Received") return ["#E9EDF4", C.navy];
+  if (stage === "Pending Purchase Manager" || stage === "Ready for PO") return ["#EAF0FB", C.blue];
+  return ["#FDF2E3", C.amber];
+}
+
+export function StageBadge({ stage }) {
+  const [bg, fg] = stageTone(stage);
+  return <Badge bg={bg} fg={fg}>{stage}</Badge>;
+}
+
 export function ReconIndicator({ color, label }) {
   const map = {
     green: { bg: "#E9F6EF", fg: C.green, dot: C.green },
