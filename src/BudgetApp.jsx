@@ -923,7 +923,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           </>
         )}
         {tab === "itemstatus" && (
-          <ItemStatusTab {...{ HEADS, items, allLines, pos, grns, cardStyle }} />
+          <ItemStatusTab {...{ HEADS, items, allLines, pos, grns, audit, cardStyle }} />
         )}
         {tab === "raisepr" && (role === "Department Head" || seesAllTabs) && (
           <RaisePRTab {...{ HEADS, approvedItemsForPR, pendingQtyByItem, submitBundledPR, cardStyle, currentUser, readOnly }} />
