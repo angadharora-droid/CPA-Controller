@@ -103,9 +103,46 @@ export function lineGstPct(line, po) {
 
 const lineAmount = (l) => Number(l.amount) || (Number(l.qty) || 0) * (Number(l.rate) || 0);
 
-/* Subtotal, overall discount, GST and rounding for a PO. Each line is taxed at its own rate (or the
-   order's); `taxes` holds one entry per non-zero rate, highest first, with the order discount shared
-   across the rates in proportion. Old POs without discount/GST fields simply produce zeros. */
+/* ---------- freight and transportation charged on a PO ----------
+   The supplier's charges on top of the goods, set when the PO is issued (or edited). Stored as
+   po.charges = { freight: { amount, gstPct }, transport: { amount, gstPct } }; only charges with an
+   amount are kept, and a null gstPct means "taxed at the order's GST rate", like an item. */
+export const PO_CHARGES = [
+  { id: "freight", label: "Freight charges", print: "FREIGHT CHARGES" },
+  { id: "transport", label: "Transportation charges", print: "TRANSPORTATION CHARGES" },
+];
+
+/* One charge as stored: { amount, gstPct } with gstPct null for the order rate; amount 0 when absent. */
+export function chargeOf(charges, id) {
+  const x = charges?.[id];
+  const own = x?.gstPct !== undefined && x?.gstPct !== null && x?.gstPct !== "";
+  return { amount: round2(Number(x?.amount) || 0), gstPct: own ? Number(x.gstPct) || 0 : null };
+}
+
+/* What to store from the form's { id: { amount, gstPct } } (strings): charges with an amount only. */
+export function chargesToSave(form) {
+  const out = {};
+  PO_CHARGES.forEach((c) => {
+    const x = chargeOf(form, c.id);
+    if (x.amount > 0) out[c.id] = x;
+  });
+  return out;
+}
+
+/* The charges a PO carries, in PO_CHARGES order, each with the GST rate it is taxed at. */
+export function poCharges(po) {
+  return PO_CHARGES.map((c) => {
+    const x = chargeOf(po?.charges, c.id);
+    if (!(x.amount > 0)) return null;
+    return { ...c, amount: x.amount, ownGst: x.gstPct !== null, gstPct: x.gstPct !== null ? x.gstPct : Number(po?.gstPct) || 0 };
+  }).filter(Boolean);
+}
+
+/* Subtotal, overall discount, freight / transportation, GST and rounding for a PO. Each line is taxed at
+   its own rate (or the order's); `taxes` holds one entry per non-zero rate, highest first, with the order
+   discount shared across the rates in proportion. The discount is on the goods only; each charge is
+   added after it and taxed at its own rate (or the order's). Old POs without discount/GST/charge fields
+   simply produce zeros. */
 export function computePOTotals(po) {
   const lines = po.lines || [];
   const subtotal = round2(lines.reduce((s, l) => s + lineAmount(l), 0));
@@ -119,27 +156,31 @@ export function computePOTotals(po) {
   lines.forEach((l) => { const r = lineGstPct(l, po); byRate.set(r, (byRate.get(r) || 0) + lineAmount(l)); });
   const groups = [...byRate.entries()].map(([pct, base]) => [pct, round2(base)]).sort((a, b) => b[0] - a[0]);
   let discountLeft = discount;
-  const taxes = [];
+  const taxableByRate = new Map();
   groups.forEach(([pct, base], i) => {
     // the last rate takes whatever discount is left, so the shares add up to the order discount exactly
     const share = i === groups.length - 1 ? discountLeft : round2(base * discountPct / 100);
     discountLeft = round2(discountLeft - share);
-    if (pct <= 0) return;
-    const groupTaxable = round2(base - share);
-    taxes.push({ pct, taxable: groupTaxable, ...splitGst(groupTaxable, pct, gstType) });
+    if (pct > 0) taxableByRate.set(pct, round2(base - share));
   });
+  // a charge joins the goods taxed at its rate: one GST line per rate, as on a Tally voucher
+  const charges = poCharges(po);
+  const chargesTotal = round2(charges.reduce((s, c) => s + c.amount, 0));
+  charges.forEach((c) => { if (c.gstPct > 0) taxableByRate.set(c.gstPct, round2((taxableByRate.get(c.gstPct) || 0) + c.amount)); });
+  const taxes = [...taxableByRate.entries()].sort((a, b) => b[0] - a[0])
+    .map(([pct, base]) => ({ pct, taxable: base, ...splitGst(base, pct, gstType) }));
   const cgst = round2(taxes.reduce((s, x) => s + x.cgst, 0));
   const sgst = round2(taxes.reduce((s, x) => s + x.sgst, 0));
   const igst = round2(taxes.reduce((s, x) => s + x.igst, 0));
   const gst = round2(cgst + sgst + igst);
 
-  const gross = round2(taxable + gst);
+  const gross = round2(taxable + chargesTotal + gst);
   const total = Math.round(gross);
   const roundOff = round2(total - gross);
   const qtyTotal = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
   // the printed PO adds a GST column only when the items are not all at one rate
   const mixedRates = groups.length > 1;
-  return { subtotal, discountPct, discount, taxable, gstPct, gstType, taxes, cgst, sgst, igst, gst, gross, total, roundOff, qtyTotal, mixedRates };
+  return { subtotal, discountPct, discount, taxable, charges, chargesTotal, gstPct, gstType, taxes, cgst, sgst, igst, gst, gross, total, roundOff, qtyTotal, mixedRates };
 }
 
 /* A PO is locked against any edit, by anyone, once goods have been received against it. */
