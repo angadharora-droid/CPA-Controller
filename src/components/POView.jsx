@@ -163,7 +163,7 @@ export function PODocument({ po }) {
           })}
 
           {/* summary rows sit in the Amount column, as on a Tally voucher */}
-          {(t.discount > 0 || t.taxes.length > 0 || t.roundOff !== 0) && (
+          {(t.discount > 0 || t.charges.length > 0 || t.taxes.length > 0 || t.roundOff !== 0) && (
             <tr>
               {blanks(gstCol ? 9 : 8)}
               <td style={{ ...num, paddingTop: 10 }}>{fmtMoney(t.subtotal)}</td>
@@ -172,6 +172,10 @@ export function PODocument({ po }) {
           {t.discount > 0 && (
             <SummaryRow gstCol={gstCol} left="Less :" text="DISCOUNT" amount={fmtSigned(-t.discount)} />
           )}
+          {/* freight and transportation go in like a Tally ledger line, before the GST they are taxed in */}
+          {t.charges.map((c) => (
+            <SummaryRow key={c.id} gstCol={gstCol} text={c.print} amount={fmtMoney(c.amount)} />
+          ))}
           {t.taxes.map((x) => t.gstType === "IGST"
             ? <SummaryRow key={x.pct} gstCol={gstCol} text={`IGST INPUT @ ${fmtPct(x.pct)}%`} rate={`${fmtPct(x.pct)} %`} amount={fmtMoney(x.igst)} />
             : (

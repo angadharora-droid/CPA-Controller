@@ -1,7 +1,7 @@
 import { Fragment, useState, useRef, useEffect } from "react";
 import { C, th, thR, inputStyle, cellInput, btnStyle } from "../../theme.js";
 import { fmtINR, fmtNum, fmtRate, round2 } from "../../utils/format.js";
-import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked, lineHasOwnGst } from "../../utils/po.js";
+import { COMPANY_BLOCK, computePOTotals, fmtMoney, fmtSigned, stateCodeOf, gstTypeForState, poIsLocked, lineHasOwnGst, PO_CHARGES, chargeOf, chargesToSave } from "../../utils/po.js";
 import { matchesQuery } from "../../utils/search.js";
 import { unitOf } from "../../utils/units.js";
 import { Field, Modal, SearchBox, UnitSelect, confirmQtyCut, confirmUnitChange } from "../ui.jsx";
@@ -10,7 +10,8 @@ import POView from "../POView.jsx";
 
 /* Everything on a PO other than its line items. `gstTypeManual` is null while the GST type
    simply follows the supplier's state code. `lineGst` holds the items given their own GST rate,
-   keyed "prId::lineId"; any item not in it is taxed at the order's rate. */
+   keyed "prId::lineId"; any item not in it is taxed at the order's rate. `charges` holds the
+   freight and transportation, { freight: { amount, gstPct } } as typed ("" gstPct = order rate). */
 const BLANK_FORM = {
   // supplier (bill from)
   supplier: "", supplierAddress: "", supplierGstin: "", supplierState: "Maharashtra, Code : 27", supplierContact: "",
@@ -20,7 +21,7 @@ const BLANK_FORM = {
   referenceNo: "", paymentTerms: "100% ADVANCE", otherReferences: "",
   deliveryTerms: "AFTER PAYMENT WITHIN 8-10 DAYS", dispatchThrough: "", destination: "Amravati", deliveryDate: "",
   // money
-  discountPct: "0", gstPct: "18", gstTypeManual: null, lineGst: {},
+  discountPct: "0", gstPct: "18", gstTypeManual: null, lineGst: {}, charges: {},
 };
 
 const lineKey = (l) => `${l.prId}::${l.lineId}`;
@@ -31,10 +32,10 @@ function formGstType(form) {
 
 /* The fields sent to issuePO / updatePO. */
 function formToFields(form) {
-  const { gstTypeManual, lineGst, lineRate, lineQty, lineUnit, ...rest } = form;
+  const { gstTypeManual, lineGst, lineRate, lineQty, lineUnit, charges, ...rest } = form;
   const ownGst = {};
   Object.entries(lineGst || {}).forEach(([k, v]) => { if (v !== "" && v !== null && v !== undefined) ownGst[k] = Number(v) || 0; });
-  const fields = { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form), lineGst: ownGst };
+  const fields = { ...rest, supplier: form.supplier.trim(), discountPct: Number(form.discountPct) || 0, gstPct: Number(form.gstPct) || 0, gstType: formGstType(form), lineGst: ownGst, charges: chargesToSave(charges) };
   // only the edit form carries rates, quantities and units: a new PO takes them from the Purchase Manager tab
   if (lineRate) fields.lineRate = Object.fromEntries(Object.entries(lineRate).map(([k, v]) => [k, Number(v)]));
   if (lineQty) fields.lineQty = Object.fromEntries(Object.entries(lineQty).map(([k, v]) => [k, Number(v)]));
@@ -52,6 +53,11 @@ function formFromPO(po) {
   form.gstTypeManual = saved === formGstType({ ...form, gstTypeManual: null }) ? null : saved;
   form.lineGst = {};
   po.lines.forEach((l) => { if (lineHasOwnGst(l)) form.lineGst[lineKey(l)] = String(Number(l.gstPct) || 0); });
+  form.charges = {};
+  PO_CHARGES.forEach((c) => {
+    const x = chargeOf(po.charges, c.id);
+    if (x.amount > 0) form.charges[c.id] = { amount: String(x.amount), gstPct: x.gstPct === null ? "" : String(x.gstPct) };
+  });
   form.lineRate = {};
   // to the paisa: a rate converted to another unit carries more decimals than anyone types
   po.lines.forEach((l) => { form.lineRate[lineKey(l)] = String(round2(Number(l.rate) || 0)); });
@@ -193,7 +199,7 @@ export default function IssuePOTab({ allLines, issuePO, updatePO, signPO, signAs
         <div ref={editRef} style={{ ...cardStyle, marginBottom: 14, borderColor: C.gold, scrollMarginTop: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Edit {editPO.id}</div>
           <div style={{ fontSize: 12, color: "#9AA1AC", marginBottom: 10 }}>
-            Rates, quantities, units, supplier, voucher details, discount and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be adjusted up or down; changes are reflected back in requisition commitments. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
+            Rates, quantities, units, supplier, voucher details, discount, freight &amp; transportation and GST (for the order or per item) can be corrected here. A rate above the approved one is allowed but flagged and recorded in the audit trail. A quantity can be adjusted up or down; changes are reflected back in requisition commitments. A new unit takes the quantity in that unit, and the rate follows so the amount stays the same; the budget item switches to that unit too.
           </div>
           {signatureCount(editPO) > 0 && (
             <div style={{ background: "#FDF2E3", color: C.amber, borderRadius: 7, padding: "7px 10px", fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
@@ -360,10 +366,12 @@ function PODetailsFields({ form, setForm, lines }) {
     return { ...f, lineGst };
   });
   const lineGst = form.lineGst || {};
+  const charges = form.charges || {};
+  const setCharge = (id, key) => (v) => setForm((f) => ({ ...f, charges: { ...(f.charges || {}), [id]: { ...(f.charges?.[id] || {}), [key]: v } } }));
   const supplierCode = stateCodeOf(form.supplierGstin, form.supplierState);
   const gstType = formGstType(form);
   // same maths as the printed document
-  const preview = computePOTotals({ lines: lines.map((l) => ({ ...l, gstPct: lineGst[l.key] })), discountPct: form.discountPct, gstPct: form.gstPct, gstType });
+  const preview = computePOTotals({ lines: lines.map((l) => ({ ...l, gstPct: lineGst[l.key] })), discountPct: form.discountPct, gstPct: form.gstPct, gstType, charges });
   const ownCount = lines.filter((l) => lineGst[l.key] !== undefined).length;
 
   return (
@@ -421,9 +429,31 @@ function PODetailsFields({ form, setForm, lines }) {
         </div>
       )}
 
+      <SectionTitle>Freight &amp; transportation</SectionTitle>
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 12, overflowX: "auto" }}>
+        <div style={{ padding: "7px 10px", fontSize: 12, color: "#6B7280", borderBottom: `1px solid ${C.line}`, background: "#FAFAF8" }}>
+          What the supplier charges on top of the goods; leave blank when there is none. The discount is on the goods only; GST follows the order rate unless you pick another.
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <tbody>
+            {PO_CHARGES.map((c) => (
+              <tr key={c.id} style={{ borderTop: "1px solid #F0EFEA" }}>
+                <td style={{ padding: "5px 10px", fontWeight: 600 }}>{c.label}</td>
+                <td style={{ padding: "5px 10px", textAlign: "right", width: 1 }}>
+                  <input type="number" min="0" step="0.01" value={charges[c.id]?.amount ?? ""} onChange={(e) => setCharge(c.id, "amount")(e.target.value)}
+                    placeholder="₹ amount" style={{ ...cellInput, width: 110 }} />
+                </td>
+                <td style={{ padding: "5px 10px", width: 1 }}><LineGstSelect value={charges[c.id]?.gstPct} orderPct={form.gstPct} onChange={setCharge(c.id, "gstPct")} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, maxWidth: 380, fontSize: 12.5, background: "#FAFAF8" }}>
         <TotalRow label="Subtotal" value={fmtMoney(preview.subtotal)} />
         {preview.discount > 0 && <TotalRow label={`Less: Discount @ ${preview.discountPct}%`} value={fmtSigned(-preview.discount)} />}
+        {preview.charges.map((c) => <TotalRow key={c.id} label={`Add: ${c.label}${c.ownGst ? ` (GST ${c.gstPct}%)` : ""}`} value={fmtMoney(c.amount)} />)}
         {preview.taxes.map((x) => gstType === "IGST"
           ? <TotalRow key={x.pct} label={`IGST @ ${x.pct}%`} value={fmtMoney(x.igst)} />
           : (

@@ -5,7 +5,7 @@ import { createStateSync } from "./sync.js";
 import { fmtINR, fmtNum, fmtRate, round2, nowStamp, uid, padNum } from "./utils/format.js";
 import { classifyLine } from "./utils/classifyLine.js";
 import { unitOf } from "./utils/units.js";
-import { todayISO, computeTransport, poIsLocked, lineHasOwnGst } from "./utils/po.js";
+import { todayISO, computeTransport, poIsLocked, lineHasOwnGst, PO_CHARGES, chargeOf, chargesToSave } from "./utils/po.js";
 import { C } from "./theme.js";
 import { editTabsOf, signBoxOf } from "./data/access.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
@@ -632,9 +632,10 @@ export default function BudgetApp({ currentUser, onLogout }) {
   function issuePO({
     lineRefs, supplier, supplierAddress, supplierGstin, supplierState, supplierContact,
     invoiceTo, consignee, referenceNo, paymentTerms, otherReferences, deliveryTerms, deliveryDate,
-    dispatchThrough, destination, discountPct, gstPct, gstType, lineGst,
+    dispatchThrough, destination, discountPct, gstPct, gstType, lineGst, charges,
   }) {
     if (!lineRefs.length) return null;
+    const onTop = chargesToSave(charges);
     const poId = `PO-CPA-${padNum(poCounter, 4)}`;
     setPoCounter((c) => c + 1);
     const lineSnapshots = lineRefs.map(({ prId, lineId }) => {
@@ -659,13 +660,21 @@ export default function BudgetApp({ currentUser, onLogout }) {
       referenceNo: referenceNo || "", paymentTerms, otherReferences: otherReferences || "", deliveryTerms,
       deliveryDate, dispatchThrough: dispatchThrough || "", destination: destination || "",
       discountPct: Number(discountPct) || 0, gstPct: Number(gstPct) || 0, gstType: gstType === "IGST" ? "IGST" : "CGST_SGST",
+      charges: onTop,
       lines: lineSnapshots, status: "Issued",
       signatures: { vp: null, president: null, purchaseManager: null },
     };
     setPos((prev) => [po, ...prev]);
     lineRefs.forEach(({ prId, lineId }) => updateLine(prId, lineId, { status: "PO Issued", poId }));
-    logAudit(`${poId} issued by Purchase Manager for ${lineSnapshots.length} line item(s) from supplier "${supplier}", expected delivery ${deliveryDate || "TBD"}.`);
+    const chargesNote = PO_CHARGES.filter((c) => onTop[c.id]).map((c) => `${c.label} ${chargeText(onTop[c.id])}`).join(", ");
+    logAudit(`${poId} issued by Purchase Manager for ${lineSnapshots.length} line item(s) from supplier "${supplier}", expected delivery ${deliveryDate || "TBD"}.${chargesNote ? ` ${chargesNote}.` : ""}`);
     return po;
+  }
+
+  /* "₹500" or "₹500 at 5% GST" (a charge on its own rate); "none" when there is no charge. */
+  function chargeText(x) {
+    if (!x || !(x.amount > 0)) return "none";
+    return `${fmtRate(x.amount)}${x.gstPct !== null && x.gstPct !== undefined ? ` at ${x.gstPct}% GST` : ""}`;
   }
 
   /* Correct the header of an issued PO (supplier, voucher details, discount, GST), the GST rate of
@@ -706,6 +715,17 @@ export default function BudgetApp({ currentUser, onLogout }) {
         if (want === had) return l;
         changed.push(`GST rate on "${l.itemName}" (${had === null ? "order rate" : `${had}%`} → ${want === null ? "order rate" : `${want}%`})`);
         return { ...l, gstPct: want };
+      });
+    }
+    // freight and transportation: a charge is changed when its amount or its own GST rate is
+    let charges = po.charges;
+    if (fields.charges) {
+      const next = chargesToSave(fields.charges);
+      PO_CHARGES.forEach((c) => {
+        const was = chargeOf(po.charges, c.id), now = chargeOf(next, c.id);
+        if (was.amount === now.amount && (was.amount === 0 || was.gstPct === now.gstPct)) return;
+        changed.push(`${c.label.toLowerCase()} (${chargeText(was)} → ${chargeText(now)})`);
+        charges = next;
       });
     }
     // a new unit goes first: the quantity typed is in that unit, and the rate follows so the amount stays
@@ -756,7 +776,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
     if (!changed.length) return po;
     const signed = Object.values(po.signatures || {}).filter(Boolean).length;
     const next = {
-      ...po, ...patch, lines,
+      ...po, ...patch, lines, ...(charges !== po.charges ? { charges } : {}),
       signatures: signed ? { vp: null, president: null, purchaseManager: null } : po.signatures,
       editedBy: whoLabel, editedAt: nowStamp(),
     };
