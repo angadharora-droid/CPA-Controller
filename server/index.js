@@ -12,7 +12,8 @@ import { BASE_HEADS } from "../src/data/heads.js";
 import { nowStamp } from "../src/utils/format.js";
 import { verifySsoToken, directoryGuard } from "./ssoClient.js";
 import { openStore, SLICES, revsOf } from "./store.js";
-import { writableSlices, signBoxOf, viewsOnly } from "../src/data/access.js";
+import { writableSlices, signBoxOf, viewsOnly, canSendBackPR } from "../src/data/access.js";
+import { sendBackPlan, sendBackNote } from "../src/utils/sendBack.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5000;
@@ -308,6 +309,28 @@ app.put("/api/state", requireAuth, async (req, res) => {
   const saved = await store.save({ base, set, auditAppend });
   if (saved.conflict) return res.status(409).json({ error: "Someone else changed this data first.", revs: saved.revs });
   res.json({ ok: true, revs: saved.revs });
+});
+
+/* The President sends a whole requisition back (src/utils/sendBack.js): it is deleted and the budget it
+   committed goes back to the items. Worked out here from the live data and saved in one go with the
+   revision numbers moved on, so open pages pick it up instead of saving the PR back. body = { reason, ts }. */
+app.post("/api/prs/:id/send-back", requireAuth, async (req, res) => {
+  if (!canSendBackPR(req.user.sub)) return res.status(403).json({ error: "Only the President can send a requisition back." });
+  const reason = String(req.body?.reason || "").trim().slice(0, 500);
+  const ts = String(req.body?.ts || "").slice(0, 40) || nowStamp();
+  // someone saving at the same moment moves the revisions on: read again and retry
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const now = await store.readSlices(["prs", "items", "pos"]);
+    if (!now) return res.status(500).json({ error: "App state not initialised." });
+    const plan = sendBackPlan(now, req.params.id);
+    if (plan.error) return res.status(409).json({ error: plan.error });
+    const set = { prs: plan.prs };
+    if (plan.released.length) set.items = plan.items;
+    const entry = { ts, who: `${req.user.name} (${req.user.role})`, text: sendBackNote(plan, reason) };
+    const saved = await store.save({ base: now.revs, set, auditAppend: [entry] });
+    if (!saved.conflict) return res.json({ ok: true, revs: saved.revs });
+  }
+  res.status(503).json({ error: "Others were saving at the same moment, so the requisition was not sent back. Please try again." });
 });
 
 /* The old save route replaced a whole slice with whatever the browser held, however old. Only a page

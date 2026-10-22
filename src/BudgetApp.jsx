@@ -7,7 +7,7 @@ import { classifyLine } from "./utils/classifyLine.js";
 import { unitOf } from "./utils/units.js";
 import { todayISO, computeTransport, poIsLocked, lineHasOwnGst, PO_CHARGES, chargeOf, chargesToSave } from "./utils/po.js";
 import { C } from "./theme.js";
-import { editTabsOf, signBoxOf } from "./data/access.js";
+import { editTabsOf, signBoxOf, canSendBackPR } from "./data/access.js";
 import DashboardTab from "./components/tabs/DashboardTab.jsx";
 import FreezeTab from "./components/tabs/FreezeTab.jsx";
 import VPImportPanel from "./components/tabs/VPImportPanel.jsx";
@@ -81,6 +81,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
   const editTabs = useMemo(() => new Set(editTabsOf(currentUser.id)), [currentUser.id]);
   const canEdit = (tabId) => editTabs.has(tabId);
   const signAs = signBoxOf(currentUser.id);
+  const canSendBack = canSendBackPR(currentUser.id);
   /* A login that can change nothing at all: every action hidden or disabled, nothing saved back. */
   const readOnly = role === "Viewer" || (editTabs.size === 0 && !signAs);
   const whoLabel = `${currentUser.name} (${role})`;
@@ -628,6 +629,19 @@ export default function BudgetApp({ currentUser, onLogout }) {
     logAudit(`"${ln.itemName}" (${prId}) marked Ready for PO by Purchase Manager at ${fmtRate(rate)}${rate > ln.finalRate ? ` (above the approved rate of ${fmtRate(ln.finalRate)})` : ""}.`);
   }
 
+  /* The President sends a whole PR back. The server deletes it and releases the budget it committed
+     (utils/sendBack.js); the change then comes in like anyone else's. Returns an error message, or null. */
+  async function sendBackPR(prId, reason) {
+    try {
+      await sync.current.flushNow(); // anything still unsaved here goes up first
+      await api(`/prs/${encodeURIComponent(prId)}/send-back`, { method: "POST", body: { reason, ts: nowStamp() } });
+      await sync.current.poll().catch(() => {});
+      return null;
+    } catch (err) {
+      return err.message;
+    }
+  }
+
   /* ---------- PO / delivery / GRN actions ---------- */
   function issuePO({
     lineRefs, supplier, supplierAddress, supplierGstin, supplierState, supplierContact,
@@ -964,7 +978,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
         )}
         {!readOnly && ACTION_TABS.has(tab) && !canEdit(tab) && (
           <div style={{ background: "#EAF0FB", border: "1px solid #C7D6EF", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12.5, color: C.blue, fontWeight: 600 }}>
-            View only — your login can see this screen but not change anything on it{tab === "issuepo" && signAs ? ", apart from signing your own box on a PO" : ""}.
+            View only — your login can see this screen but not change anything on it{tab === "issuepo" && signAs ? ", apart from signing your own box on a PO" : ""}{tab === "pmqueue" && canSendBack ? ", apart from sending a whole PR back" : ""}.
           </div>
         )}
         {tab === "dashboard" && (
@@ -990,7 +1004,7 @@ export default function BudgetApp({ currentUser, onLogout }) {
           <PresidentSecondApprovalTab {...{ prs, items, presidentDecideLine, cardStyle, secondApprovalPct }} readOnly={!canEdit("president2nd")} />
         )}
         {tab === "pmqueue" && (
-          <PurchaseManagerTab {...{ prs, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle }} readOnly={!canEdit("pmqueue")} />
+          <PurchaseManagerTab {...{ prs, pos, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle, canSendBack, sendBackPR }} readOnly={!canEdit("pmqueue")} />
         )}
         {tab === "issuepo" && (
           <IssuePOTab {...{ allLines, issuePO, updatePO, signPO, signAs, unitBlock, cardStyle }} readOnly={!canEdit("issuepo")} pos={posForView} />

@@ -3,13 +3,14 @@ import { C, th, thR, cellInput, btnStyle } from "../../theme.js";
 import { fmtNum, fmtRate, round2 } from "../../utils/format.js";
 import { matchesQuery } from "../../utils/search.js";
 import { unitOf } from "../../utils/units.js";
+import { sendBackBlock } from "../../utils/sendBack.js";
 import { Badge, SearchBox, UnitSelect, confirmQtyCut, confirmUnitChange } from "../ui.jsx";
 
 const hint = { fontSize: 10.5, color: "#9AA1AC", marginTop: 2 };
 const warn = { ...hint, color: C.red, fontWeight: 600 };
 
 /* ================= PURCHASE MANAGER ================= */
-export default function PurchaseManagerTab({ prs, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle, readOnly }) {
+export default function PurchaseManagerTab({ prs, pos, pmSetRate, pmSetQty, pmSetUnit, unitBlock, pmMarkReady, cardStyle, canSendBack, sendBackPR, readOnly }) {
   const inQueue = (l) => l.status === "Pending Purchase Manager" || l.status === "Ready for PO";
   const [query, setQuery] = useState("");
   const relevantPrs = prs.filter((pr) => pr.lines.some(inQueue));
@@ -17,7 +18,7 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmSetQty, pmSetUnit
   return (
     <div>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Purchase Manager — Consolidated PRs</div>
-      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. The quantity can be adjusted up or down as needed; a reduction sends the units not bought back to the approved balance. If an item is bought in another unit (cloth by the metre), pick the unit and type the quantity in it: the rate follows so the amount stays the same, and the budget item switches to that unit too. Once a line is marked Ready for PO, use Edit to change its rate, quantity or unit; after its PO is issued, use Edit on the Issue PO tab (until goods are received). Specs are locked at this stage.</div>
+      <div style={{ fontSize: 12.5, color: "#9AA1AC", marginBottom: 14 }}>Set the rate you are buying at — lower or higher than the approved rate. A rate above the approved one is allowed but flagged and recorded in the audit trail. The quantity can be adjusted up or down as needed; a reduction sends the units not bought back to the approved balance. If an item is bought in another unit (cloth by the metre), pick the unit and type the quantity in it: the rate follows so the amount stays the same, and the budget item switches to that unit too. Once a line is marked Ready for PO, use Edit to change its rate, quantity or unit; after its PO is issued, use Edit on the Issue PO tab (until goods are received). Specs are locked at this stage. The President can send a whole PR back while none of it is on a PO: it is deleted, and its approved quantities return to the balance on Raise Purchase Requisition so it can be raised again.</div>
       {relevantPrs.length > 0 && <div style={{ display: "flex", marginBottom: 14 }}><SearchBox value={query} onChange={setQuery} placeholder="Search PR no., item, head, vendor, status…" /></div>}
       {relevantPrs.length === 0 && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>Nothing to negotiate right now.</div>}
       {relevantPrs.length > 0 && !relevantPrs.some((pr) => shown(pr).length) && <div style={{ ...cardStyle, textAlign: "center", color: "#9AA1AC", padding: 40 }}>No lines match "{query.trim()}".</div>}
@@ -26,7 +27,10 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmSetQty, pmSetUnit
         if (!lines.length) return null;
         return (
           <div key={pr.id} style={{ ...cardStyle, marginBottom: 14 }}>
-            <div style={{ marginBottom: 10 }}><b>{pr.id}</b> <span style={{ color: "#9AA1AC", fontSize: 12.5 }}>— {pr.raisedBy || "—"} ({pr.dept || "—"})</span></div>
+            <div style={{ marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div><b>{pr.id}</b> <span style={{ color: "#9AA1AC", fontSize: 12.5 }}>— {pr.raisedBy || "—"} ({pr.dept || "—"})</span></div>
+              {canSendBack && <SendBackButton pr={pr} block={sendBackBlock(pr, pos)} sendBackPR={sendBackPR} />}
+            </div>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", fontSize: 12.5, borderCollapse: "collapse" }}>
                 <thead>
@@ -47,6 +51,26 @@ export default function PurchaseManagerTab({ prs, pmSetRate, pmSetQty, pmSetUnit
         );
       })}
     </div>
+  );
+}
+
+/* The President's alone: the whole PR is deleted and its approved quantities go back to the balance on Raise PR. */
+function SendBackButton({ pr, block, sendBackPR }) {
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    const reason = window.prompt(`Send ${pr.id} back?\n\nThe whole requisition (${pr.lines.length} line(s)) is deleted and the budget it holds goes back to the balance on Raise Purchase Requisition, so it can be raised again. This cannot be undone.\n\nReason (optional, kept in the audit trail):`, "");
+    if (reason === null) return;
+    setBusy(true);
+    const err = await sendBackPR(pr.id, reason.trim());
+    setBusy(false);
+    if (err) window.alert(err);
+  }
+  const off = !!block || busy;
+  return (
+    <button onClick={go} disabled={off} title={block || "Delete this requisition and return its quantities to the Raise PR balance"}
+      style={{ ...btnStyle(C.red), fontSize: 11, padding: "4px 10px", flexShrink: 0, opacity: off ? 0.5 : 1, cursor: block ? "not-allowed" : busy ? "wait" : "pointer" }}>
+      {busy ? "Sending back…" : "Send back"}
+    </button>
   );
 }
 

@@ -10,7 +10,8 @@
      Sunil, Ravi Sharma      sunil, ravisharma   Raise PR
      Narendra                purchase       Purchase Manager, Issue PO
      Shailendra              store          Receive Material (GRN)
-     Ganesh and everyone else               view only */
+     Ganesh and everyone else               view only
+   Arjun can also send a whole PR back from the Purchase Manager tab (SENDS_BACK_PR, 2026-10-22). */
 export const EDIT_RIGHTS = {
   arjun: ["freeze", "raisepr", "vpdesk", "president2nd"],
   amitkhandwal: ["freeze", "raisepr", "vpdesk"],
@@ -42,7 +43,16 @@ export const TAB_SLICES = {
   demo: ["items", "headFreeze", "prs", "prCounter"],
 };
 
+/* Sending a whole requisition back — deleting it and releasing the budget it committed, so it can be
+   raised again (src/utils/sendBack.js) — is the President's alone. */
+export const SENDS_BACK_PR = ["arjun"];
+
 const key = (userId) => String(userId || "").trim().toLowerCase();
+
+/* True when this login may send a requisition back. */
+export function canSendBackPR(userId) {
+  return SENDS_BACK_PR.includes(key(userId));
+}
 
 /* The tabs this login can edit. */
 export function editTabsOf(userId) {
