@@ -6,7 +6,7 @@
 
    Agreed access (2026-10-15):            edits
      Arjun (President)       arjun          Budget Review & Freeze, Raise PR, VP's Desk, President's Desk
-     Amit Kandwal (VP)       amitkhandwal   Budget Review & Freeze, Raise PR, VP's Desk
+     Amit Kandwal (VP)       amitkandwal    Budget Review & Freeze, Raise PR, VP's Desk
      Sunil, Ravi Sharma      sunil, ravisharma   Raise PR
      Narendra                purchase       Purchase Manager, Issue PO
      Shailendra              store          Receive Material (GRN)
@@ -14,7 +14,7 @@
    Arjun can also send a whole PR back from the Purchase Manager tab (SENDS_BACK_PR, 2026-10-22). */
 export const EDIT_RIGHTS = {
   arjun: ["freeze", "raisepr", "vpdesk", "president2nd"],
-  amitkhandwal: ["freeze", "raisepr", "vpdesk"],
+  amitkandwal: ["freeze", "raisepr", "vpdesk"],
   sunil: ["raisepr"],
   ravisharma: ["raisepr"],
   purchase: ["pmqueue", "issuepo"],
@@ -24,7 +24,7 @@ export const EDIT_RIGHTS = {
 /* Signing a PO is not editing it: each of these signs their own box on any PO, from Issue PO or the
    Delivery Calendar, and nothing else on the PO changes. The box: "vp" | "president" | "purchaseManager". */
 export const SIGNS_PO = {
-  amitkhandwal: "vp",
+  amitkandwal: "vp",
   arjun: "president",
   purchase: "purchaseManager",
 };

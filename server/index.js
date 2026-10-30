@@ -1,6 +1,7 @@
 import "dotenv/config";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
@@ -48,17 +49,25 @@ const User = mongoose.model("User", userSchema);
    is stopped from saving its old copy over someone else's newer work. */
 let store;
 
-/* ---------- first-run seeding ---------- */
+/* ---------- first-run seeding ----------
+   The logins. Passwords are never kept here: they live in MongoDB only as bcrypt hashes. */
 const SEED_USERS = [
-  { userId: "amitkhandwal", password: "Amit@GM#2026", name: "Amit Kandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
-  { userId: "arjun", password: "President@2026", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
-  { userId: "purchase", password: "Purchase@2026", name: "Narendra", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
-  { userId: "store", password: "Store@2026", name: "Shailendra", role: "Store Manager", title: "Store Manager — Goods Receipt" },
-  { userId: "depthead", password: "Dept@2026", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
-  { userId: "ravisharma", password: "Ravi@2026", name: "Ravi Sharma", role: "Department Head", title: "Department Head — Requisitions" },
-  { userId: "sunil", password: "Sunil@2026", name: "Sunil", role: "Department Head", title: "Department Head — Requisitions" },
-  { userId: "shashank", password: "Shashank@2026", name: "Shashank Kapley", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
-  { userId: "ganesh", password: "Ganesh@2026", name: "Ganesh", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
+  { userId: "amitkandwal", name: "Amit Kandwal", role: "VP", isAdmin: true, title: "Vice President — Budget Submission, First Approval & Full Administrative Access" },
+  { userId: "arjun", name: "Arjun Arora", role: "President", title: "President — Budget Freeze & Second Approval" },
+  { userId: "purchase", name: "Narendra", role: "Purchase Manager", title: "Purchase Manager — Rate Negotiation & Purchase Orders" },
+  { userId: "store", name: "Shailendra", role: "Store Manager", title: "Store Manager — Goods Receipt" },
+  { userId: "depthead", name: "Department Head", role: "Department Head", title: "Department Head — Requisitions" },
+  { userId: "ravisharma", name: "Ravi Sharma", role: "Department Head", title: "Department Head — Requisitions" },
+  { userId: "sunil", name: "Sunil", role: "Department Head", title: "Department Head — Requisitions" },
+  { userId: "shashank", name: "Shashank Kapley", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
+  { userId: "ganesh", name: "Ganesh", role: VIEWER_ROLE, title: "View-Only Access — All Screens" },
+];
+
+/* Login IDs that changed, [old, new]. The old account (and its password) moves to the new ID before seeding,
+   so the new ID is not seeded fresh beside it; if the new one already exists (renamed by hand), the old ID can
+   only be a re-seeded duplicate and is removed. */
+const RENAMED_LOGINS = [
+  ["amitkhandwal", "amitkandwal"], // 2026-10-30: ID spelled like the name
 ];
 
 function freshState() {
@@ -93,14 +102,25 @@ function freshState() {
 }
 
 async function seed() {
-  // Users: add any seed account that does not exist yet. Existing accounts (and their passwords) are never touched.
-  let added = 0;
+  for (const [from, to] of RENAMED_LOGINS) {
+    if (!(await User.exists({ userId: from }))) continue;
+    if (await User.exists({ userId: to })) {
+      await User.deleteOne({ userId: from });
+      console.log(`Removed the "${from}" login ("${to}" replaces it).`);
+    } else {
+      await User.updateOne({ userId: from }, { $set: { userId: to } });
+      console.log(`Renamed the "${from}" login to "${to}".`);
+    }
+  }
+
+  // Users: add any seed account that does not exist yet, with a random password shown once in the server log.
+  // Existing accounts (and their passwords) are never touched.
   for (const u of SEED_USERS) {
     if (await User.exists({ userId: u.userId })) continue;
-    await User.create({ userId: u.userId, name: u.name, role: u.role, isAdmin: !!u.isAdmin, title: u.title, passwordHash: bcrypt.hashSync(u.password, 10) });
-    added++;
+    const password = crypto.randomBytes(9).toString("base64url");
+    await User.create({ userId: u.userId, name: u.name, role: u.role, isAdmin: !!u.isAdmin, title: u.title, passwordHash: bcrypt.hashSync(password, 10) });
+    console.log(`Added login "${u.userId}" with password ${password}`);
   }
-  if (added) console.log(`Seeded ${added} user account(s).`);
   await migrateUsers();
 
   // App state: move it out of the old single document if need be, archive an out-of-date schema, or
@@ -114,18 +134,18 @@ async function seed() {
 async function migrateUsers() {
   // The VP and the former "General Manager" are the same person: fold the admin account into a
   // single VP login carrying the admin flag, so the audit trail records them as VP.
-  const gm = SEED_USERS.find((u) => u.userId === "amitkhandwal");
+  const gm = SEED_USERS.find((u) => u.userId === "amitkandwal");
   const folded = await User.updateOne(
-    { userId: "amitkhandwal", $or: [{ role: "General Manager" }, { isAdmin: { $ne: true } }] },
+    { userId: "amitkandwal", $or: [{ role: "General Manager" }, { isAdmin: { $ne: true } }] },
     { $set: { role: "VP", isAdmin: true, title: gm.title } }
   );
-  if (folded.modifiedCount) console.log('Migrated "amitkhandwal" to role VP with the admin flag.');
+  if (folded.modifiedCount) console.log('Migrated "amitkandwal" to role VP with the admin flag.');
   // Retire the separate VP-only login that the merged account replaces.
   const retired = await User.deleteOne({ userId: "amit" });
-  if (retired.deletedCount) console.log('Removed the retired "amit" login (merged into "amitkhandwal").');
-  // Name spelling corrected to "Amit Kandwal" (the login ID stays "amitkhandwal").
-  const renamed = await User.updateOne({ userId: "amitkhandwal", name: "Amit Khandwal" }, { $set: { name: gm.name } });
-  if (renamed.modifiedCount) console.log(`Renamed the "amitkhandwal" account to "${gm.name}".`);
+  if (retired.deletedCount) console.log('Removed the retired "amit" login (merged into "amitkandwal").');
+  // Name spelling corrected to "Amit Kandwal" (the login ID followed on 2026-10-30, RENAMED_LOGINS).
+  const renamed = await User.updateOne({ userId: "amitkandwal", name: "Amit Khandwal" }, { $set: { name: gm.name } });
+  if (renamed.modifiedCount) console.log(`Renamed the "amitkandwal" account to "${gm.name}".`);
 
   // The Purchase Executive role was merged into Purchase Manager: one person negotiates rates, issues POs
   // and signs them. Retire the separate "purchaseexec" login and fold any remaining account carrying the
